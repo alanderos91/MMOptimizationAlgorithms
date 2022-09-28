@@ -47,6 +47,7 @@ save_for_warm_start!(prob::AbstractProblem) = save_for_warm_start!(prob, prob.ex
 include(joinpath("projections", "L0Projection.jl"))
 include(joinpath("projections", "SimplexProjection.jl"))
 include(joinpath("projections", "L1BallProjection.jl"))
+include(joinpath("projections", "SparseSimplexProjection.jl"))
 
 include("callbacks.jl")
 include("utilities.jl")

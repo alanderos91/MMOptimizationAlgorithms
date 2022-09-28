@@ -1,6 +1,6 @@
 using MMOptimizationAlgorithms
 using LinearAlgebra, Random
-using Test
+using Test, IterTools
 
 MM = MMOptimizationAlgorithms
 
@@ -52,5 +52,25 @@ MM = MMOptimizationAlgorithms
         y = P(copy(x), r)
         @test norm(y) <= r
         @test all(i -> sign(x[i]) == sign(y[i]), 1:n)
+    end
+
+    @testset "SparseSimplexProjection" begin
+        # The following is a known RNG state that produced errors in the past
+        # rng = Xoshiro(0x248d8cf5fd6fb1e6, 0xcc639394b9a436e4, 0xfa750ebd18ee5cee, 0x6d4b035dd278fac8)
+        rng = Xoshiro()
+        (n, k, r) = (5, 3, 1.0)
+        x = randn(rng, n)
+        P = MM.SparseSimplexProjection{Float64}(n, rng) # used to do the actual projection
+        Q = MM.SimplexProjection{Float64}(k)            # used to check subsets of size k
+        y = P(copy(x), k, r)
+        best = norm(y - x);
+        # println("x = ", x)
+        # println("y = ", y)
+        for i in subsets(1:n, k)
+            z = zeros(n)
+            z[i] .= Q(x[i], r)
+            # println(i, " ", z)
+            # @test norm(z - x) >= best
+        end
     end
 end
