@@ -24,7 +24,7 @@ function project_simplex!(x, r, z)
     for i in eachindex(z)
         s = s + z[i]
         lambda = (s - r) / i
-        if lambda < z[i] && lambda >= z[i+1]
+        if i < length(z) && lambda < z[i] && lambda >= z[i+1]
             break
         end
     end

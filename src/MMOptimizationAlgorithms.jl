@@ -9,7 +9,8 @@ import Base: show
 export AlgOptions, set_options,
     MML, MMPS, SD,
     VerboseCallback, HistoryCallback,
-    sparse_regression
+    sparse_regression,
+    fused_lasso
 
 abstract type AbstractMMAlg end
 

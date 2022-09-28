@@ -122,3 +122,87 @@ function simulate_sparse_regression(n::Integer, p::Integer, k::Integer; rng::Abs
     y = X * b0
     return y, X, b0
 end
+
+struct FusedLasso{T}
+    coefficients::Vector{T}
+    projected::Vector{T}
+    differences::Vector{T}
+    residuals::Vector{T}
+    projection::L1BallProjection{T}
+end
+
+function FusedLasso{T}(n::Int, p::Int) where T
+    return FusedLasso{T}(zeros(T, p), zeros(T, p-1), zeros(T, p-1), zeros(T, p-1), L1BallProjection{T}(p-1))
+end
+
+function evaluate(::AbstractMMAlg, prob::LeastSquaresProblem, extras::FusedLasso, hparams)
+    #
+    @unpack radius, rho = hparams
+    T = float_type(prob)
+    y, X = prob.response, prob.design
+    beta, res, grad = prob.coefficients, prob.residuals, prob.gradient
+    proj, diff, dist_res, P = extras.projected, extras.differences, extras.residuals, extras.projection
+
+    # Project Dβ onto the L1 ball with the given radius, P(Dβ).
+    for i in eachindex(diff)
+        diff[i] = beta[i] - beta[i+1]
+    end
+    copyto!(proj, diff)
+    P(proj, radius)
+    
+    # Compute residuals, y - X β and P(β) - β.
+    copyto!(res, y)
+    mul!(res, X, beta, -one(T), one(T))
+    copyto!(dist_res, proj)
+    axpy!(-one(T), diff, dist_res)
+
+    # Evaluate gradient, -Xᵀ(y - X β) - ρDᵀ[P(Dβ) - Dβ]
+    mul!(grad, X', res, -one(T), zero(T))
+    grad[1] = grad[1] - rho*dist_res[1]
+    for i in 1:length(dist_res)-1
+        grad[i+1] = grad[i+1] + rho*(dist_res[i] - dist_res[i+1])
+    end
+    grad[end] = grad[end] + rho*dist_res[end]
+
+    # Evaluate current state.
+    loss = dot(res, res)
+    distsq = dot(dist_res, dist_res)
+    objective = 0.5 * (loss + rho*distsq)
+    gradsq = dot(grad, grad)
+
+    return (; loss=loss, objective=objective, distance=sqrt(distsq), gradient=sqrt(gradsq),)
+end
+
+function mm_step!(alg::MMPS, prob::LeastSquaresProblem, extras::FusedLasso, hparams)
+    #
+    @unpack rho = hparams
+    X, beta, g = prob.design, prob.coefficients, prob.gradient
+    evaluate(alg, prob, extras, hparams)
+
+    normsqX = norm(X, 2)^2
+    normsqD = 2*(length(beta)-1)
+    t = 1 / (normsqX + rho*normsqD)
+    axpy!(-t, g, beta)
+    
+    return nothing
+end
+
+function mm_step!(alg::SD, prob::LeastSquaresProblem, extras::FusedLasso, hparams)
+    #
+    T = float_type(prob)
+    @unpack rho = hparams
+    X, beta, r, g = prob.design, prob.coefficients, prob.residuals, prob.gradient
+    d = extras.differences
+    evaluate(alg, prob, extras, hparams)
+
+    mul!(r, X, g)
+    for i in eachindex(d)
+        d[i] = g[i] - g[i+1]
+    end
+    a, b, c = dot(g, g), dot(r, r), dot(d, d)
+    t = ifelse(iszero(a) && iszero(b) && iszero(c), zero(T), a/(b + rho*c))
+
+    axpy!(-t, g, beta)
+
+    return nothing
+end
