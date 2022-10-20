@@ -2,7 +2,7 @@ module MMOptimizationAlgorithms
 
 using Printf, UnPack
 using Random, StatsBase
-using LinearAlgebra, Polyester
+using Distances, Graphs, LinearAlgebra, Polyester
 
 import Base: show
 
@@ -10,7 +10,8 @@ export AlgOptions, set_options,
     MML, MMPS, SD,
     VerboseCallback, HistoryCallback,
     sparse_regression,
-    fused_lasso
+    fused_lasso,
+    node_smoothing
 
 abstract type AbstractMMAlg end
 
@@ -53,6 +54,7 @@ include("callbacks.jl")
 include("utilities.jl")
 
 include(joinpath("problems", "LeastSquaresProblem.jl"))
+include(joinpath("problems", "GraphLearningProblem.jl"))
 
 """
 Placeholder for callbacks in main functions.
@@ -125,7 +127,7 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
     callback::F=DEFAULT_CALLBACK,
 ) where F
     # Get algorithm options.
-    @unpack maxiter, gtol, nesterov = options
+    @unpack maxiter, gtol, rtol, nesterov = options
 
     # Initialize iteration counts.
     iters = 0
@@ -149,7 +151,7 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
         callback((iter, state), problem, hyperparams)
 
         # Assess convergence.
-        is_stationary = state.gradient < gtol
+        is_stationary = state.gradient < gtol || abs(state.objective - old) < old * rtol
         if is_stationary
             break
         elseif iter < maxiter
@@ -167,5 +169,6 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
 end
 
 include("constrained_least_squares.jl")
+include("graph_learning.jl")
 
 end # module
