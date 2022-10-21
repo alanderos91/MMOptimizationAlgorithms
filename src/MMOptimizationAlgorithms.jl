@@ -11,7 +11,8 @@ export AlgOptions, set_options,
     VerboseCallback, HistoryCallback,
     sparse_regression,
     fused_lasso,
-    node_smoothing
+    node_smoothing,
+    node_sparsity
 
 abstract type AbstractMMAlg end
 

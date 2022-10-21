@@ -169,6 +169,93 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
     return nothing
 end
 
+####
+#### Node Sparsity
+####
+
+struct NodeSparsity{RNG,T}
+    weights::Vector{T}
+    buffer::Vector{T}
+    projected::Vector{T}
+    residuals::Vector{T}
+    projection::SparseSimplexProjection{RNG,T}
+end
+
+function NodeSparsity(node_data::Vector{Vector{T}}) where T
+    m = length(node_data)
+    p = binomial(m, 2)
+    P = SparseSimplexProjection{T}(p)
+    RNG = typeof(P.rng) # hacky
+    return NodeSparsity{RNG,T}(ones(T, p), zeros(T, p), zeros(T, p), zeros(T, p), P)
+end
+
+function evaluate(::AbstractMMAlg, prob::GraphLearningProblem, extras::NodeSparsity, hparams)
+    #
+    @unpack alpha, k, rho = hparams
+    T = float_type(prob)
+    m, w, d, grad = prob.m, prob.weights, prob.dist_data, prob.gradient
+    proj, dist_res, P = extras.projected, extras.residuals, extras.projection
+
+    # Project w to sparse unit simplex.
+    copyto!(proj, w)
+    P(proj, k, one(T))
+
+    # Evaluate unpenalized loss.
+    loss = graph_learning_loss(m, w, d, alpha)
+
+    # Evaluate distance penalty on loss.
+    copyto!(dist_res, proj)
+    axpy!(-one(T), w, dist_res)
+    penalty = dot(dist_res, dist_res)
+
+    # Evaluate the full gradient.
+    graph_learning_gradient!(grad, m, w, d, alpha)
+    axpy!(-rho, dist_res, grad)
+
+    # Evaluate the current state.
+    objective = loss + 0.5*penalty
+    gradsq = dot(grad, grad)
+
+    return (; loss=loss, objective=objective, distance=sqrt(penalty), gradient=sqrt(gradsq),)
+end
+
+function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, hparams)
+    #
+    @unpack alpha, k, rho = hparams
+    T = float_type(prob)
+    m, w, d = prob.m, prob.weights, prob.dist_data
+
+    # Cache old weight estimates so we can update in parallel.
+    wn, proj, P = extras.buffer, extras.projected, extras.projection
+    copyto!(wn, w)
+
+    # Project w to sparse unit simplex.
+    copyto!(proj, w)
+    P(proj, k, one(T))
+
+    # Apply updates in parallel.
+    @batch per=core for i in 1:m
+        wsum_i = graph_learning_wsum(m, wn, i)
+        idx = binomial(i+1, 2)
+        for j in i+1:m
+            wsum_j = graph_learning_wsum(m, wn, j)
+            v = alpha * (1/wsum_j + 1/wsum_i) * w[idx]
+            if v == 0
+                w[idx] = 0
+            else
+                q = d[idx] - rho*proj[idx]
+                a = -2*q + sqrt(4*q^2 + 8*rho*v)
+                b = 4*rho
+                w[idx] = abs(a) / b
+            end
+            idx += j-1
+        end
+    end
+    @assert all(!isnan, w)
+    @assert all(>=(0), w)
+    return nothing
+end
+
 """
 Simulate graph signals X for the given graph G, where each realization xᵢ ~ N(0, L† + σI)
 follows a multivariate normal distribution.
