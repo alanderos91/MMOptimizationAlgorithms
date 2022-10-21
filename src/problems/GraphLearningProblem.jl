@@ -88,11 +88,10 @@ function graph_learning_gradient!(grad, m, w, d, alpha)
         idx = binomial(i+1, 2)
         for j in i+1:m
             wsum_j = graph_learning_wsum(m, w, j)
-            grad[idx] = -alpha * (1/wsum_i + 1/wsum_j)
+            grad[idx] = 2*d[idx] - alpha * (1/wsum_i + 1/wsum_j)
             idx += j-1
         end
     end
-    axpy!(2.0, d, grad)
     return grad
 end
 
@@ -138,9 +137,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
     @unpack alpha, beta = hparams
     T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
-
-    # Clamp values in case Nesterov acceleration set weights < 0.
-    clamp!(w, zero(T), Inf)
+    epsilon = sqrt(eps())
 
     # Cache old weight estimates so we can update in parallel.
     wn = extras.buffer
@@ -153,13 +150,10 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
         for j in i+1:m
             wsum_j = graph_learning_wsum(m, wn, j)
             v = alpha * (1/wsum_j + 1/wsum_i) * w[idx]
-            if v == 0
-                w[idx] = 0
-            else
-                a = -2*d[idx] + sqrt(4*d[idx]^2 + 8*beta*v)
-                b = 4*beta
-                w[idx] = abs(a) / b
-            end
+            a = -2*d[idx] + sqrt(4*d[idx]^2 + 8*beta*v)
+            b = 4*beta
+            wnew = a / b
+            w[idx] = ifelse(wnew > epsilon, wnew, 0)
             idx += j-1
         end
     end
@@ -223,9 +217,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
     @unpack alpha, k, rho = hparams
     T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
-
-    # Clamp values in case Nesterov acceleration set weights < 0.
-    clamp!(w, zero(T), Inf)
+    epsilon = sqrt(eps())
 
     # Cache old weight estimates so we can update in parallel.
     wn, proj, P = extras.buffer, extras.projected, extras.projection
@@ -242,14 +234,11 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
         for j in i+1:m
             wsum_j = graph_learning_wsum(m, wn, j)
             v = alpha * (1/wsum_j + 1/wsum_i) * w[idx]
-            if v == 0
-                w[idx] = 0
-            else
-                q = d[idx] - rho*proj[idx]
-                a = -2*q + sqrt(4*q^2 + 8*rho*v)
-                b = 4*rho
-                w[idx] = abs(a) / b
-            end
+            q = d[idx] - rho*proj[idx]
+            a = -2*q + sqrt(4*q^2 + 8*rho*v)
+            b = 4*rho
+            wnew = a / b
+            w[idx] = ifelse(wnew > epsilon, wnew, 0)
             idx += j-1
         end
     end
@@ -278,10 +267,12 @@ function simulate_graph_signals(G::Graph, nsamples; sigma=1.0)
     chol = cholesky!(Symmetric(pinv(Matrix(L)) + sigma*I)) # this is a bad approach; use ARPACK or KrylovKit to help
 
     (n, m) = (nsamples, size(A, 1)) # samples × nodes
-    X = chol.L * randn(m, n)
-    node_data = Vector{Float64}[]
-    for x in eachrow(X)
-        push!(node_data, copy(x))
+    node_data = [zeros(n) for _ in 1:m]
+    for i in 1:n
+        x = chol.L*randn(m)
+        for j in 1:m
+            node_data[j][i] = x[j]
+        end
     end
     return (node_data, A, L)
 end
