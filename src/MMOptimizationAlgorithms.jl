@@ -152,7 +152,7 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
         callback((iter, state), problem, hyperparams)
 
         # Assess convergence.
-        is_stationary = state.gradient < gtol || abs(state.objective - old) < old * rtol
+        is_stationary = state.gradient < gtol || abs(state.objective - old) < rtol * (1 + old)
         if is_stationary
             break
         elseif iter < maxiter

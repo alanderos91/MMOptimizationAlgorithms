@@ -83,18 +83,13 @@ function graph_learning_gradient!(grad, m, w, d, alpha)
     # Fill in gradient by moving along rows of upper triangular matrix.
     # This allows us to compute the row sum once and only once at the cost of
     # iterating through w in a nonstrided fashion.
-    fill!(grad, 0)
     for i in 1:m
-        wsum = graph_learning_wsum(m, w, i)
+        wsum_i = graph_learning_wsum(m, w, i)
         idx = binomial(i+1, 2)
         for j in i+1:m
-            grad[idx] -= alpha*inv(wsum)
+            wsum_j = graph_learning_wsum(m, w, j)
+            grad[idx] = -alpha * (1/wsum_i + 1/wsum_j)
             idx += j-1
-        end
-        idx = binomial(i, 2)
-        for j in i-1:-1:1
-            grad[idx] -= alpha*inv(wsum)
-            idx -= 1
         end
     end
     axpy!(2.0, d, grad)
@@ -141,7 +136,11 @@ end
 function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, hparams)
     #
     @unpack alpha, beta = hparams
+    T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
+
+    # Clamp values in case Nesterov acceleration set weights < 0.
+    clamp!(w, zero(T), Inf)
 
     # Cache old weight estimates so we can update in parallel.
     wn = extras.buffer
@@ -210,10 +209,10 @@ function evaluate(::AbstractMMAlg, prob::GraphLearningProblem, extras::NodeSpars
 
     # Evaluate the full gradient.
     graph_learning_gradient!(grad, m, w, d, alpha)
-    axpy!(-rho, dist_res, grad)
+    axpy!(-2*rho, dist_res, grad)
 
     # Evaluate the current state.
-    objective = loss + 0.5*penalty
+    objective = loss + penalty
     gradsq = dot(grad, grad)
 
     return (; loss=loss, objective=objective, distance=sqrt(penalty), gradient=sqrt(gradsq),)
@@ -224,6 +223,9 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
     @unpack alpha, k, rho = hparams
     T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
+
+    # Clamp values in case Nesterov acceleration set weights < 0.
+    clamp!(w, zero(T), Inf)
 
     # Cache old weight estimates so we can update in parallel.
     wn, proj, P = extras.buffer, extras.projected, extras.projection

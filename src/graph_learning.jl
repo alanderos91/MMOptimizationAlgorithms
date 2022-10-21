@@ -53,9 +53,13 @@ function node_sparsity(alg::AbstractMMAlg, node_data::Vector{Vector{T}}, k::Int;
     # Solve the problem along the penalty path.
     state = proxdist!(alg, prob, hparams; kwargs...)
 
+    # Project the final estimate.
+    weights, P = extras.projected, extras.projection
+    copyto!(weights, prob.weights)
+    P(weights, k, one(T))
+
     # Reshape into a matrix.
     @unpack m = prob
-    weights = extras.projected
     W = zeros(m, m)
     idx = 1
     for j in 1:m, i in 1:j-1
