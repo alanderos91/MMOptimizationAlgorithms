@@ -43,12 +43,13 @@ probdims(prob::GraphLearningProblem) = (prob.m, prob.p, prob.d)
 float_type(::GraphLearningProblem{T}) where T = T
 
 function nesterov_acceleration!(prob::GraphLearningProblem, nesterov_iter, needs_reset)
-    x, y = prob.weights, prob.extras.weights
-    nesterov_acceleration!(x, y, nesterov_iter, needs_reset)
+    # x, y = prob.weights, prob.extras.weights
+    # nesterov_acceleration!(x, y, nesterov_iter, needs_reset)
+    return 0
 end
 
 function save_for_warm_start!(prob::GraphLearningProblem)
-    copyto!(prob.extras.weights, prob.weights)
+    # copyto!(prob.extras.weights, prob.weights)
     return nothing
 end
 
@@ -132,6 +133,17 @@ function evaluate(::AbstractMMAlg, prob::GraphLearningProblem, extras::NodeSmoot
     return (; loss=loss, objective=objective, distance=zero(loss), gradient=sqrt(gradsq),)
 end
 
+function unsafe_quadratic(a, b, c)
+    d = b^2 - 4*a*c
+    if b > 0
+        r1 = (-b - sqrt(d)) / (2*a)
+    else
+        r1 = (-b + sqrt(d)) / (2*a)
+    end
+    r2 = c / (r1 * a)
+    return (r1, r2)
+end
+
 function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, hparams)
     #
     @unpack alpha, beta = hparams
@@ -149,10 +161,10 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
         idx = binomial(i+1, 2)
         for j in i+1:m
             wsum_j = graph_learning_wsum(m, wn, j)
-            v = alpha * (1/wsum_j + 1/wsum_i) * w[idx]
-            a = -2*d[idx] + sqrt(4*d[idx]^2 + 8*beta*v)
-            b = 4*beta
-            wnew = a / b
+            A = 2*beta
+            B = 2*d[idx]
+            C = -alpha * (1/wsum_i + 1/wsum_j) * wn[idx]
+            wnew = maximum(unsafe_quadratic(A, B, C))
             w[idx] = ifelse(wnew > epsilon, wnew, 0)
             idx += j-1
         end
@@ -206,7 +218,7 @@ function evaluate(::AbstractMMAlg, prob::GraphLearningProblem, extras::NodeSpars
     axpy!(-2*rho, dist_res, grad)
 
     # Evaluate the current state.
-    objective = loss + penalty
+    objective = loss + rho*penalty
     gradsq = dot(grad, grad)
 
     return (; loss=loss, objective=objective, distance=sqrt(penalty), gradient=sqrt(gradsq),)
@@ -233,11 +245,10 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
         idx = binomial(i+1, 2)
         for j in i+1:m
             wsum_j = graph_learning_wsum(m, wn, j)
-            v = alpha * (1/wsum_j + 1/wsum_i) * w[idx]
-            q = d[idx] - rho*proj[idx]
-            a = -2*q + sqrt(4*q^2 + 8*rho*v)
-            b = 4*rho
-            wnew = a / b
+            A = 2*rho
+            B = 2*(d[idx] - rho*proj[idx])
+            C = -alpha * (1/wsum_i + 1/wsum_j) * wn[idx]
+            wnew = maximum(unsafe_quadratic(A, B, C))
             w[idx] = ifelse(wnew > epsilon, wnew, 0)
             idx += j-1
         end

@@ -9,7 +9,6 @@ function node_smoothing(alg::AbstractMMAlg, node_data::Vector{Vector{T}};
     alpha::Real=1.0,
     beta::Real=1.0,
     metric::SemiMetric=Euclidean(),
-    options::AlgOptions=default_options(alg),
     kwargs...
 ) where T
     # Initialize problem object.
@@ -17,8 +16,7 @@ function node_smoothing(alg::AbstractMMAlg, node_data::Vector{Vector{T}};
     hparams = (; alpha=alpha, beta=beta,)
 
     # Solve the problem along the penalty path.
-    disabled_nesterov = set_options(options; nesterov=options.maxiter+1)
-    state = proxdist!(alg, prob, hparams; options=disabled_nesterov, kwargs...)
+    state = proxdist!(alg, prob, hparams; kwargs...)
 
     # Reshape into a matrix.
     @unpack m, weights = prob
@@ -45,7 +43,6 @@ Estimate a sparse adjacency graph from node signals.
 function node_sparsity(alg::AbstractMMAlg, node_data::Vector{Vector{T}}, k::Int;
     alpha::Real=1.0,
     metric::SemiMetric=Euclidean(),
-    options::AlgOptions=default_options(alg),
     kwargs...
 ) where T
     # Initialize problem object.
@@ -54,8 +51,7 @@ function node_sparsity(alg::AbstractMMAlg, node_data::Vector{Vector{T}}, k::Int;
     hparams = (; alpha=alpha, k=k,)
 
     # Solve the problem along the penalty path.
-    disabled_nesterov = set_options(options; nesterov=options.maxiter+1)
-    state = proxdist!(alg, prob, hparams; options=disabled_nesterov, kwargs...)
+    state = proxdist!(alg, prob, hparams; kwargs...)
 
     # Project the final estimate.
     weights, P = extras.projected, extras.projection
