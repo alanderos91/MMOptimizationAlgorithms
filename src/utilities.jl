@@ -130,3 +130,22 @@ function nesterov_acceleration!(prob::AbstractProblem, ni, nr)
     @warn "Nesterov acceleration not implemented for $(typeof(prob))."
     return nothing
 end
+
+# Default: Update rho only
+naive_update(prob::AbstractProblem, rho, rho_new) = rho_new
+
+# x <- x + dx * dρ
+function linear_update(prob::AbstractProblem, rho, rho_new)
+    drho = rho_new - rho
+    x, dx = rho_sensitivity(prob, prob.extras, rho)
+    axpy!(drho, dx, x)
+    return rho_new
+end
+
+# x <- x + dx * dη
+function exponential_update(prob::AbstractProblem, rho, rho_new)
+    deta = log(rho_new/rho)
+    x, dx = eta_sensitivity(prob, prob.extras, rho)
+    axpy!(deta, dx, x)
+    return rho_new
+end

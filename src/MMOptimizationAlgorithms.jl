@@ -67,7 +67,8 @@ const DEFAULT_CALLBACK = __do_nothing_callback__
 function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hyperparams;
     options::AlgOptions{G}=default_options(algorithm),
     callback::F=DEFAULT_CALLBACK,
-) where {F,G}
+    pathf::H=naive_update,
+) where {F,G,H}
     # Get algorithm options.
     @unpack maxrhov, gtol, dtol, rtol, rho_init, rho_max, rhof = options
 
@@ -106,7 +107,13 @@ function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hype
         end
 
         # Update according to annealing schedule.
-        rho = ifelse(iter < maxrhov, rhof(rho, iter, rho_max), rho)
+        # rho = ifelse(iter < maxrhov, rhof(rho, iter, rho_max), rho)
+        rho = if iter < maxrhov
+            rho_new = rhof(rho, iter, rho_max)
+            pathf(problem, rho, rho_new)
+        else
+            rho
+        end
         hyperparams = (; hyperparams..., rho=rho,)
     end
 

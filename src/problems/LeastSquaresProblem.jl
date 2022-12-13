@@ -123,6 +123,46 @@ function simulate_sparse_regression(n::Integer, p::Integer, k::Integer; rng::Abs
     return y, X, b0
 end
 
+function rho_sensitivity(prob::LeastSquaresProblem, extras::SparseRegression, rho)
+    X, q, beta = prob.design, extras.residuals, extras.projected
+    dbeta = similar(beta)
+    p = length(beta)
+    T = float_type(prob)
+
+    # negE = I - dP(x); negation of sparsity pattern
+    negE = zeros(T, p, p)
+    for j in axes(negE, 2)
+        negE[j,j] = ifelse(iszero(beta[j]), one(T), zero(T))
+    end
+
+    # solve for dbeta
+    A = transpose(X)*X + rho*negE
+    ldiv!(dbeta, cholesky!(A), q)
+    @. dbeta = -dbeta
+
+    return prob.coefficients, dbeta
+end
+
+function eta_sensitivity(prob::LeastSquaresProblem, extras::SparseRegression, rho)
+    X, q, beta = prob.design, extras.residuals, extras.projected
+    dbeta = similar(beta)
+    p = length(beta)
+    T = float_type(prob)
+
+    # negE = I - dP(x); negation of sparsity pattern
+    negE = zeros(T, p, p)
+    for j in axes(negE, 2)
+        negE[j,j] = ifelse(iszero(beta[j]), one(T), zero(T))
+    end
+
+    # remember that ρ = exp(η)
+    A = transpose(X)*X + rho*negE
+    ldiv!(dbeta, cholesky!(A), q)
+    @. dbeta = -rho * dbeta
+
+    return prob.coefficients, dbeta
+end
+
 struct FusedLasso{T}
     coefficients::Vector{T}
     projected::Vector{T}
