@@ -43,13 +43,13 @@ probdims(prob::GraphLearningProblem) = (prob.m, prob.p, prob.d)
 float_type(::GraphLearningProblem{T}) where T = T
 
 function nesterov_acceleration!(prob::GraphLearningProblem, nesterov_iter, needs_reset)
-    # x, y = prob.weights, prob.extras.weights
-    # nesterov_acceleration!(x, y, nesterov_iter, needs_reset)
-    return 0
+    x, y = prob.weights, prob.extras.weights
+    nesterov_acceleration!(x, y, nesterov_iter, needs_reset)
+    # return 0
 end
 
 function save_for_warm_start!(prob::GraphLearningProblem)
-    # copyto!(prob.extras.weights, prob.weights)
+    copyto!(prob.extras.weights, prob.weights)
     return nothing
 end
 
@@ -149,7 +149,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
     @unpack alpha, beta = hparams
     T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
-    epsilon = sqrt(eps())
+    epsilon = zero(T) # sqrt(eps())
 
     # Cache old weight estimates so we can update in parallel.
     wn = extras.buffer
@@ -165,7 +165,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSmoothing, 
             B = 2*d[idx]
             C = -alpha * (1/wsum_i + 1/wsum_j) * wn[idx]
             wnew = maximum(unsafe_quadratic(A, B, C))
-            w[idx] = ifelse(wnew > epsilon, wnew, 0)
+            w[idx] = ifelse(wnew > epsilon, wnew, zero(T))
             idx += j-1
         end
     end
@@ -229,7 +229,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
     @unpack alpha, k, rho = hparams
     T = float_type(prob)
     m, w, d = prob.m, prob.weights, prob.dist_data
-    epsilon = sqrt(eps())
+    epsilon = zero(T) # sqrt(eps())
 
     # Cache old weight estimates so we can update in parallel.
     wn, proj, P = extras.buffer, extras.projected, extras.projection
@@ -249,7 +249,7 @@ function mm_step!(alg::MMPS, prob::GraphLearningProblem, extras::NodeSparsity, h
             B = 2*(d[idx] - rho*proj[idx])
             C = -alpha * (1/wsum_i + 1/wsum_j) * wn[idx]
             wnew = maximum(unsafe_quadratic(A, B, C))
-            w[idx] = ifelse(wnew > epsilon, wnew, 0)
+            w[idx] = ifelse(wnew > epsilon, wnew, zero(T))
             idx += j-1
         end
     end
