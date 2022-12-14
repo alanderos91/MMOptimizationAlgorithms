@@ -12,7 +12,11 @@ export AlgOptions, set_options,
     sparse_regression,
     fused_lasso,
     node_smoothing,
-    node_sparsity
+    node_sparsity,
+    naive_update,
+    linear_update,
+    exponential_update,
+    geometric_progression
 
 abstract type AbstractMMAlg end
 
