@@ -132,20 +132,92 @@ function nesterov_acceleration!(prob::AbstractProblem, ni, nr)
 end
 
 # Default: Update rho only
-naive_update(prob::AbstractProblem, rho, rho_new) = rho_new
+naive_update(prob::AbstractProblem, rho, rho_new, hparams) = rho_new
 
 # x <- x + dx * dρ
-function linear_update(prob::AbstractProblem, rho, rho_new)
+function linear_update(prob::AbstractProblem, rho, rho_new, hparams)
     drho = rho_new - rho
-    x, dx = rho_sensitivity(prob, prob.extras, rho)
+    x, dx = rho_sensitivity(prob, prob.extras, rho, hparams)
     axpy!(drho, dx, x)
     return rho_new
 end
 
 # x <- x + dx * dη
-function exponential_update(prob::AbstractProblem, rho, rho_new)
+function exponential_update(prob::AbstractProblem, rho, rho_new, hparams)
     deta = log(rho_new/rho)
-    x, dx = eta_sensitivity(prob, prob.extras, rho)
-    axpy!(deta, dx, x)
+    x, dx = rho_sensitivity(prob, prob.extras, rho, hparams)
+    axpy!(rho*deta, dx, x)
     return rho_new
+end
+
+#
+# Forward difference operator
+#
+# D = [
+#      -1   1   0  0
+#       0  -1   1  0
+#       0   0  -1  1
+#     ]
+#
+"Overwrite `y` with `alpha*D*x + beta*y`, where `D` is the compatible forward difference operator on `x`."
+function fd_axpby!(alpha::T, x, beta::T, y) where T <: Real
+    if length(y) != length(x)-1
+        error("""
+        Output $(length(y)) and input $(length(x)) dimensions are incompatible for computing forward differences.
+        """)
+    end
+    for i in eachindex(y)
+        y[i] = alpha*(x[i+1] - x[i]) + beta*y[i]
+    end
+    return y
+end
+
+"Overwrite `y` with `alpha*D*x + y`, where `D` is the compatible forward difference operator on `x`."
+function fd_axpy!(alpha, x, y)
+    T = eltype(y)
+    fd_axpby!(T(alpha), x, one(T), y)
+end
+
+"Compute `y = D*x` in-place, where `D` is the compatible forward difference operator on `x`."
+function fd!(y, x)
+    T = eltype(y)
+    fill!(y, zero(T))
+    fd_axpby!(one(T), x, zero(T), y)
+end
+
+#
+# Forward difference operator tranpose
+#
+# Dᵀ = [
+#       -1   0   0
+#        1  -1   0
+#        0   1  -1
+#        0   0   1
+#      ]
+#
+"Overwrite `y` with `alpha*Dᵀ*x + beta*y`, where `Dᵀ` is the transpose of the compatible forward difference operator on `x`."
+function fdt_axpby!(alpha::T, x, beta::T, y) where T <: Real
+    if length(y) != length(x)+1
+        error("""
+        Output $(length(y)) and input $(length(x)) dimensions are incompatible for computing forward differences.
+        """)
+    end
+    n = length(y)
+    y[1] = -alpha*x[1] + beta*y[1]
+    n > 2 && fd_axpby!(-alpha, x, beta, view(y, 2:n-1))
+    y[end] = alpha*x[end] + beta*y[end]
+    return y
+end
+
+"Overwrite `y` with `alpha*Dᵀ*x + y`, where `Dᵀ` is the transpose of the compatible forward difference operator on `x`."
+function fdt_axpy!(alpha, x, y)
+    T = eltype(y)
+    fdt_axpby!(T(alpha), x, one(T), y)
+end
+
+"Compute `y = Dᵀ*x` in-place, where `Dᵀ` is the transpose of the compatible forward difference operator on `x`."
+function fdt!(y, x)
+    T = eltype(y)
+    fill!(y, zero(T))
+    fdt_axpby!(one(T), x, zero(T), y)
 end

@@ -2,7 +2,7 @@ module MMOptimizationAlgorithms
 
 using Printf, UnPack
 using Random, StatsBase
-using Distances, Graphs, LinearAlgebra, Polyester
+using Distances, Graphs, LinearAlgebra, ForwardDiff, Polyester
 
 import Base: show
 
@@ -114,7 +114,7 @@ function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hype
         # rho = ifelse(iter < maxrhov, rhof(rho, iter, rho_max), rho)
         rho = if iter < maxrhov
             rho_new = rhof(rho, iter, rho_max)
-            pathf(problem, rho, rho_new)
+            pathf(problem, rho, rho_new, hyperparams)
         else
             rho
         end
