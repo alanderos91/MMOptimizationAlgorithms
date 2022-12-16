@@ -116,6 +116,8 @@ end
 
 function simulate_sparse_regression(n::Integer, p::Integer, k::Integer; rng::AbstractRNG=Xoshiro())
     X = randn(rng, n, p)
+    F = StatsBase.fit(ZScoreTransform, X, dims=1)
+    StatsBase.transform!(F, X)
     b0 = zeros(p)
     b0[1:k] .= 1
     shuffle!(rng, b0)
@@ -124,7 +126,7 @@ function simulate_sparse_regression(n::Integer, p::Integer, k::Integer; rng::Abs
 end
 
 function rho_sensitivity(prob::LeastSquaresProblem, extras::SparseRegression, rho, hparams)
-    X, q, beta = prob.design, extras.residuals, extras.projected
+    X, RHS, beta = prob.design, extras.residuals, extras.projected
     dbeta = similar(beta)
     p = length(beta)
     T = float_type(prob)
@@ -137,7 +139,7 @@ function rho_sensitivity(prob::LeastSquaresProblem, extras::SparseRegression, rh
 
     # solve for dbeta
     A = transpose(X)*X + rho*negE
-    ldiv!(dbeta, lu!(A), q)
+    ldiv!(dbeta, lu!(A), RHS)
 
     return prob.coefficients, dbeta
 end
@@ -260,6 +262,7 @@ function rho_sensitivity(prob::LeastSquaresProblem, extras::FusedLasso, rho, hpa
     # Compute the differentials dP(β) and dP(Dβ).
     dP1 = ForwardDiff.jacobian(P1, beta)
     dP1 .= I - dP1
+    fd!(Dbeta, beta)
     dP2 = ForwardDiff.jacobian(P2, Dbeta)
     dP2 .= I - dP2
 
@@ -274,10 +277,10 @@ function rho_sensitivity(prob::LeastSquaresProblem, extras::FusedLasso, rho, hpa
         src = view(tmp, :, j)
         fdt!(dst, src)
     end
-    axpby!(rho, dP1, rho, A)
-    mul!(A, transpose(X), X, one(T), one(T))
+    axpy!(one(T), dP1, A)
+    mul!(A, transpose(X), X, one(T), T(rho))
 
-    # Compute RHS: [β - P(β)] + Dᵀ[Dβ - P(Dβ)]
+    # Compute RHS: [P(β) - β] + Dᵀ[P(Dβ) - Dβ]
     fdt!(RHS, dres2)
     axpy!(one(T), dres1, RHS)
 
