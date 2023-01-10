@@ -74,9 +74,11 @@ function make_axis(f, title, xlabel, ylabel)
 end
 
 function plot_history_data(example, r, h, field, xlabel, ylabel, bias=0.0)
-    fig = Figure(resolution=(1800, 1200),)
+    size_inches = (8, 6)
+    size_pt = 72 .* size_inches
+    fig = Figure(resolution=size_pt, fontsize=12)
     ax = make_axis(fig[1,1], example, xlabel, ylabel)
-    axzoom = make_axis(fig[2,1], example, xlabel, ylabel)
+    # axzoom = make_axis(fig[2,1], example, xlabel, ylabel)
     for (label, data) in h
         x = eachindex(data[field])
         y = iszero(bias) ? data[field] : bias .+ data[field]
@@ -91,18 +93,20 @@ function plot_history_data(example, r, h, field, xlabel, ylabel, bias=0.0)
         xlims!(ax, high=viewxmax)
         ylims!(ax, low=viewymin)
 
-        # Zoomed View
-        viewxmax = 1e1 .^ ceil(log10(xmax))
-        viewxmin = max(1.0, 1e1 .^ floor(log10(xmax) - 1))
-        idx = findfirst(>(viewxmin), x)
-        viewymin, viewymax = extrema(y[idx:end])
-        viewymin = 1e1 .^ floor(log10(viewymin))
-        viewymax = 1e1 .^ ceil(log10(viewymax))
-        lines!(axzoom, x, y, label=label, linewidth=5,)
-        xlims!(axzoom, low=viewxmin, high=viewxmax)
-        ylims!(axzoom, low=viewymin, high=viewymax)
+        # # Zoomed View
+        # viewxmax = 1e1 .^ ceil(log10(xmax))
+        # viewxmin = max(1.0, 1e1 .^ floor(log10(xmax) - 1))
+        # idx = findfirst(>(viewxmin), x)
+        # viewymin, viewymax = extrema(y[idx:end])
+        # viewymin = 1e1 .^ floor(log10(viewymin))
+        # viewymax = 1e1 .^ ceil(log10(viewymax))
+        # lines!(axzoom, x, y, label=label, linewidth=5,)
+        # xlims!(axzoom, low=viewxmin, high=viewxmax)
+        # ylims!(axzoom, low=viewymin, high=viewymax)
     end
-    fig[3,1] = Legend(fig, ax, "Extrapolation", framevisible=false, orientation=:horizontal)
+    # fig[3,1] = Legend(fig, ax, "Extrapolation", framevisible=false, orientation=:horizontal)
+    fig[1,2] = Legend(fig, ax, "Extrapolation", framevisible=false, orientation=:vertical)
+    resize_to_layout!(fig)
     return fig
 end
 
@@ -168,25 +172,26 @@ end
 
 function main(outdir, examples)
     !ispath(outdir) && mkpath(outdir)
+    ext = "pdf"
     for (example, runf) in examples
         result, history = runf()
         
         @info "Plotting distances..."
         fig1 = @time plot_distances(example, result, history)
         save(
-            joinpath(outdir, "$(example)-distances.png"), fig1
+            joinpath(outdir, "$(example)-distances.$(ext)"), fig1, pt_per_unit=1,
         )
 
         @info "Ploting gradients..."
         fig2 = @time plot_gradients(example, result, history)
         save(
-            joinpath(outdir, "$(example)-gradients.png"), fig2
+            joinpath(outdir, "$(example)-gradients.$(ext)"), fig2, pt_per_unit=1,
         )
 
         @info "Ploting objectives..."
         fig3 = @time plot_objectives(example, result, history)
         save(
-            joinpath(outdir, "$(example)-objectives.png"), fig3
+            joinpath(outdir, "$(example)-objectives.$(ext)"), fig3, pt_per_unit=1,
         )
     end
     return 0
