@@ -5,10 +5,12 @@ using Random, StatsBase
 using Distances, Graphs, LinearAlgebra, ForwardDiff, Polyester
 
 import Base: show
+import ForwardDiff: Dual
 
 export AlgOptions, set_options,
-    MML, MMPS, SD,
+    MML, MMPS, SD, TRNewton,
     VerboseCallback, HistoryCallback,
+    trnewton,
     sparse_regression,
     fused_lasso,
     node_smoothing,
@@ -42,6 +44,11 @@ Majorize an objective with a surrogate that admits an exact line search in steep
 struct SD <: AbstractMMAlg end
 
 """
+Trust region Newton method.
+"""
+struct TRNewton <: AbstractMMAlg end
+
+"""
 Abstract type for representing different kinds of problems. Must provide the field `extras`.
 """
 abstract type AbstractProblem end
@@ -67,6 +74,10 @@ Placeholder for callbacks in main functions.
 __do_nothing_callback__((iter, state), problem, hyperparams) = nothing
 
 const DEFAULT_CALLBACK = __do_nothing_callback__
+
+__evalone__(evalf, x, xold, iter, r) = 1.0
+
+const DEFAULT_LIPSCHITZ = __evalone__
 
 function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hyperparams;
     options::AlgOptions{G}=default_options(algorithm),
@@ -178,6 +189,81 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
     save_for_warm_start!(problem)
 
     return (iters, is_stationary, state)
+end
+
+function trnewton(f::F, x0;
+    options::AlgOptions=default_options(nothing),
+    callback::G=DEFAULT_CALLBACK,
+    lipschitzf::LFUN=DEFAULT_LIPSCHITZ,
+    chunks::Int=1) where {F,G,LFUN}
+    # Sanity checks.
+    @unpack maxiter, gtol = options
+    
+    # Initialization.
+    c = 1.0
+    x, xold, v = copy(x0), copy(x0), similar(x0)
+    result = DiffResults.HessianResult(x)
+    cfg = ForwardDiff.HessianConfig(f, result, x, ForwardDiff.Chunk(chunks))
+
+    evaluatef = let f=f, result=result, cfg=cfg
+        function (x)
+            r = ForwardDiff.hessian!(result, f, x, cfg)
+            fx = DiffResults.value(r)
+            dfx = DiffResults.gradient(r)
+            d2fx = DiffResults.hessian(r)
+            return r, fx, dfx, d2fx
+        end
+    end
+    result, fold, grad, hess = evaluatef(x)
+    H = similar(hess)
+
+    state = (;
+        objective=fold,
+        gradient=norm(grad),
+        trust_region_r=Inf,
+        residual=Inf,
+        lipschitz_L=Inf,
+    )
+    callback((-1, state), nothing, nothing)
+
+    for iter in 1:maxiter
+        # Find a valid positive definite approximation to the Hessian.
+        lambda = min(eigmin(hess), 0.0)
+        r = c * sqrt(norm(grad))
+
+        L = lipschitzf(evaluatef, x, xold, iter, r)
+        L < 0 && error("L must be nonnegative")
+
+        d = max((lambda + L * r / 3) / r, 1 / c)
+        H .= Symmetric(hess) + (lambda + d * r) * I
+        
+        # Solve for Newton increment.
+        cholH = cholesky!(H)
+        ldiv!(v, cholH, -grad)
+        
+        # Update and evaluate loss.
+        x .= x + v 
+        result = ForwardDiff.hessian!(result, f, x) # need to re-alias
+        fnew = DiffResults.value(result)
+        state = (;
+            objective=fnew,
+            gradient=norm(grad),
+            trust_region_r=r,
+            residual=norm(x - xold),
+            lipschitz_L=L,
+        )
+        callback((iter, state), nothing, nothing)
+
+        # Check for descent and convergence.
+        if fold < fnew
+            error("descent condition not satisfied at iteration $(iter)")
+        elseif state.gradient < gtol
+            break
+        end
+        fold = fnew
+        xold .= x
+    end
+    return x
 end
 
 include("constrained_least_squares.jl")

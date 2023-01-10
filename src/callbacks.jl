@@ -46,6 +46,33 @@ function (F::VerboseCallback)((iter, state), problem, hyperparams)
     return nothing
 end
 
+function (F::VerboseCallback)((iter, state), ::Nothing, ::Nothing)
+    if iter == -1
+        @printf(
+            "\n%-5s\t%-8s\t%-8s\t%-8s\t%-8s\t%-8s\n",
+            "iter",
+            "objective",
+            "|gradient|",
+            "rₖ",
+            "|xₖ-xₖ₋₁|",
+            "Lₖ",
+        )
+        iter = 0
+    end
+    if iter % F.every == 0
+        @printf(
+            "%4d\t%4.3e\t%4.3e\t%4.3e\t%4.3e\t%4.3e\n",
+            iter,
+            state.objective,
+            state.gradient,
+            state.trust_region_r,
+            state.residual,
+            state.lipschitz_L,
+        )
+    end
+    return nothing
+end
+
 ###
 ### HistoryCallback
 ###
