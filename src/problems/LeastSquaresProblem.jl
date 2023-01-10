@@ -39,15 +39,16 @@ function save_for_warm_start!(prob::LeastSquaresProblem)
     return nothing
 end
 
-struct SparseRegression{T}
+struct SparseRegression{T,projT}
     coefficients::Vector{T}
     projected::Vector{T}
     residuals::Vector{T}
-    projection::L0Projection
+    projection::projT
 end
 
-function SparseRegression{T}(n::Int, p::Int) where T
-    return SparseRegression{T}(zeros(T, p), zeros(T, p), zeros(T, p), L0Projection(p))
+function SparseRegression{T}(::Type{projT}, n::Int, p::Int) where {T,projT}
+    projection = projT{T}(p)
+    return SparseRegression{T,typeof(projection)}(zeros(T, p), zeros(T, p), zeros(T, p), projection)
 end
 
 function evaluate(::AbstractMMAlg, prob::LeastSquaresProblem, extras::SparseRegression, hparams)

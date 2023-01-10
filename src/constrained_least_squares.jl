@@ -11,7 +11,7 @@ function sparse_regression(alg::AbstractMMAlg, y::AbstractVector, X::AbstractMat
     T = promote_type(eltype(y), eltype(X))
     ycp = convert(Vector{T}, y)
     Xcp = convert(Matrix{T}, X)
-    prob = LeastSquaresProblem(ycp, Xcp, SparseRegression{T}(n, p))
+    prob = LeastSquaresProblem(ycp, Xcp, SparseRegression{T}(L0Projection, n, p))
     hparams = (; k=k,)
 
     # Solve the problem along the penalty path.
