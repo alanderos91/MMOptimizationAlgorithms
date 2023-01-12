@@ -221,3 +221,74 @@ function fdt!(y, x)
     fill!(y, zero(T))
     fdt_axpby!(one(T), x, zero(T), y)
 end
+
+function simulate_constant_correlation(n, p, k;
+    rng::AbstractRNG=Xoshiro(),
+    ngroup::Vector{Int}=equal_size_groups(p, k),
+    delta::Real=1e-2,
+    epsilon::Real=1e-2,
+    rho::Vector{T}=0.05*ones(k),
+    noisedim::Int=1,
+) where T
+#
+    rhomin = minimum(rho)
+    rhomax = maximum(rho)
+
+    rhomin < 0 && error("Need minimum(rho) >= 0")
+    rhomax >= 1 && error("Need maximum(rho) < 1")
+    delta >= rhomin && error("Need delta < minimum(rho)")
+    epsilon >= 1-rhomax && error("Need epsilon < 1 - maximum(rho)")
+    noisedim < 1 && error("Noise dimension must be >= 1")
+    length(ngroup) != k && error("Group partitions ($(length(ngroup))) must match k ($(k))")
+
+    X = zeros(n, p)
+    S = zeros(p, p)
+    groups = []
+    index = 1
+    for i in eachindex(ngroup)
+        start = index
+        stop = start + ngroup[i] - 1
+        push!(groups, start:stop)
+        index = stop + 1
+    end
+
+    if noisedim == 1
+        u = [rand(rng, (-1.0, 1.0)) for _ in 1:p]
+    else
+        u = [randn(rng, noisedim) for _ in 1:p]
+        u .= u ./ norm.(u)
+    end
+    for (A, groupA) in enumerate(groups), (B, groupB) in enumerate(groups)
+        for j in groupB, i in groupA
+            if i == j
+                S[i,j] = 1
+            elseif A == B
+                S[i,j] = rho[A] + epsilon*dot(u[i], u[j])
+            else
+                S[i,j] = delta + epsilon*dot(u[i], u[j])
+            end
+        end
+    end
+    randmvn!(rng, X, Symmetric(S))
+    return X
+end
+
+function equal_size_groups(p, k)
+    k > p && error("Need number of groups k <= p.")
+    #
+    x = zeros(Int, k)
+    q, r = divrem(p, k)
+    x .= q
+    r > 0 && (x[end] += r)
+    return x
+end
+
+function randmvn!(rng, X, S)
+    cholS = cholesky(S)
+    z = zeros(size(X, 2))
+    for x in eachrow(X)
+        randn!(rng, z)
+        mul!(x, cholS.L, z)
+    end
+    return X
+end

@@ -11,6 +11,7 @@ export AlgOptions, set_options,
     MML, MMPS, SD, TRNewton,
     VerboseCallback, HistoryCallback,
     trnewton,
+    newton,
     sparse_regression,
     fused_lasso,
     node_smoothing,
@@ -200,7 +201,6 @@ function trnewton(f::F, x0;
     @unpack maxiter, gtol = options
     
     # Initialization.
-    c = 1.0
     x, xold, v = copy(x0), copy(x0), similar(x0)
     result = DiffResults.HessianResult(x)
     cfg = ForwardDiff.HessianConfig(f, result, x, ForwardDiff.Chunk(chunks))
@@ -228,23 +228,34 @@ function trnewton(f::F, x0;
 
     for iter in 1:maxiter
         # Find a valid positive definite approximation to the Hessian.
-        lambda = min(eigmin(hess), 0.0)
-        r = c * sqrt(norm(grad))
+        lambda = eigmin(Symmetric(hess))
+        if lambda <= 0
+            lambda -= 1e-6
+        elseif lambda > 0
+            lambda = zero(lambda)
+        end
 
+        # Find a valid trust region radius.
+        c = 1.0
+        r = c * sqrt(norm(grad))
         L = lipschitzf(evaluatef, x, xold, iter, r)
         L < 0 && error("L must be nonnegative")
+        while c < sqrt(3 / L)
+            c = c * 2
+            r = c * sqrt(norm(grad))
+            L = lipschitzf(evaluatef, x, xold, iter, r)
+            L < 0 && error("L must be nonnegative")
+        end
+        d = 1 / c
+        H .= Symmetric(hess) + (-lambda + d*r) * I
 
-        d = max((lambda + L * r / 3) / r, 1 / c)
-        H .= Symmetric(hess) + (lambda + d * r) * I
-        
         # Solve for Newton increment.
         cholH = cholesky!(H)
         ldiv!(v, cholH, -grad)
-        
+
         # Update and evaluate loss.
         x .= x + v 
-        result = ForwardDiff.hessian!(result, f, x) # need to re-alias
-        fnew = DiffResults.value(result)
+        result, fnew, grad, hess = evaluatef(x) # re-alias
         state = (;
             objective=fnew,
             gradient=norm(grad),
@@ -256,7 +267,102 @@ function trnewton(f::F, x0;
 
         # Check for descent and convergence.
         if fold < fnew
-            error("descent condition not satisfied at iteration $(iter)")
+            @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+        elseif fold == fnew
+            @warn "Reached a no-progress point." new=fnew old=fold diff=fold-fnew
+            break
+        elseif state.gradient < gtol
+            break
+        end
+        fold = fnew
+        xold .= x
+    end
+    return x
+end
+
+function newton(f::F, x0;
+    options::AlgOptions=default_options(nothing),
+    callback::G=DEFAULT_CALLBACK,
+    nhalf::Int=3,
+    chunks::Int=1) where {F,G,LFUN}
+    # Sanity checks.
+    @unpack maxiter, gtol = options
+    
+    # Initialization.
+    x, xold, v = copy(x0), copy(x0), similar(x0)
+    result = DiffResults.HessianResult(x)
+    cfg = ForwardDiff.HessianConfig(f, result, x, ForwardDiff.Chunk(chunks))
+
+    evaluatef = let f=f, result=result, cfg=cfg
+        function (x)
+            r = ForwardDiff.hessian!(result, f, x, cfg)
+            fx = DiffResults.value(r)
+            dfx = DiffResults.gradient(r)
+            d2fx = DiffResults.hessian(r)
+            return r, fx, dfx, d2fx
+        end
+    end
+    result, fold, grad, hess = evaluatef(x)
+    H = similar(hess)
+
+    state = (;
+        objective=fold,
+        gradient=norm(grad),
+        trust_region_r=Inf,
+        residual=Inf,
+        lipschitz_L=Inf,
+    )
+    callback((-1, state), nothing, nothing)
+
+    for iter in 1:maxiter
+        # Find a valid positive definite approximation to the Hessian.
+        lambda = eigmin(Symmetric(hess))
+        if lambda <= 0
+            lambda -= 1e-6
+        elseif lambda > 0
+            lambda = zero(lambda)
+        end    
+        H .= Symmetric(hess) - lambda*I
+
+        # Solve for Newton increment.
+        cholH = cholesky!(H)
+        ldiv!(v, cholH, -grad)
+        
+        # Update and evaluate loss.
+        fnew = Inf
+        for step in 0:nhalf
+            s = 2.0 ^ -step
+            axpy!(s, v, x)
+            result, fnew, grad, hess = evaluatef(x) # re-alias
+            if fnew < fold
+                if step > 0 && callback isa VerboseCallback
+                    println("\t\t $(step) step-halving operation(s)")
+                end
+                break
+            else
+                if step == nhalf && callback isa VerboseCallback
+                    println("\t\t $(step) step-halving operation(s)")
+                else
+                    axpy!(-s, v, x)
+                end
+            end
+        end
+
+        state = (;
+            objective=fnew,
+            gradient=norm(grad),
+            trust_region_r=Inf,
+            residual=norm(x - xold),
+            lipschitz_L=Inf,
+        )
+        callback((iter, state), nothing, nothing)
+
+        # Check for descent and convergence.
+        if fold < fnew
+            @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+        elseif fold == fnew
+            @warn "Reached a no-progress point." new=fnew old=fold diff=fold-fnew
+            break
         elseif state.gradient < gtol
             break
         end

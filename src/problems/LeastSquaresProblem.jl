@@ -47,8 +47,7 @@ struct SparseRegression{T,projT}
 end
 
 function SparseRegression{T}(::Type{projT}, n::Int, p::Int) where {T,projT}
-    projection = projT{T}(p)
-    return SparseRegression{T,typeof(projection)}(zeros(T, p), zeros(T, p), zeros(T, p), projection)
+    return SparseRegression(zeros(T, p), zeros(T, p), zeros(T, p), projT(p))
 end
 
 function evaluate(::AbstractMMAlg, prob::LeastSquaresProblem, extras::SparseRegression, hparams)
