@@ -87,22 +87,22 @@ function plot_history_data(example, r, h, field, xlabel, ylabel, bias=0.0)
         ymin = minimum(y)
 
         # Full Figure
-        viewxmax = 1e1 .^ ceil(log10(xmax))
-        viewymin = 1e1 .^ floor(log10(ymin))
-        lines!(ax, x, y, label=label, linewidth=5,)
-        xlims!(ax, high=viewxmax)
-        ylims!(ax, low=viewymin)
-
-        # # Zoomed View
         # viewxmax = 1e1 .^ ceil(log10(xmax))
-        # viewxmin = max(1.0, 1e1 .^ floor(log10(xmax) - 1))
-        # idx = findfirst(>(viewxmin), x)
-        # viewymin, viewymax = extrema(y[idx:end])
-        # viewymin = 1e1 .^ floor(log10(viewymin))
-        # viewymax = 1e1 .^ ceil(log10(viewymax))
-        # lines!(axzoom, x, y, label=label, linewidth=5,)
-        # xlims!(axzoom, low=viewxmin, high=viewxmax)
-        # ylims!(axzoom, low=viewymin, high=viewymax)
+        # viewymin = 1e1 .^ floor(log10(ymin))
+        # lines!(ax, x, y, label=label, linewidth=5,)
+        # xlims!(ax, high=viewxmax)
+        # ylims!(ax, low=viewymin)
+
+        # Zoomed View
+        viewxmax = 1e1 .^ ceil(log10(xmax))
+        viewxmin = 1e3 # max(1.0, 1e1 .^ floor(log10(xmax) - 1))
+        idx = findfirst(>(viewxmin), x)
+        viewymin, viewymax = extrema(y[idx:end])
+        viewymin = 1e1 .^ floor(log10(viewymin))
+        viewymax = 1e1 .^ ceil(log10(viewymax))
+        lines!(ax, x, y, label=label, linewidth=5,)
+        xlims!(ax, low=viewxmin, high=viewxmax)
+        ylims!(ax, low=viewymin, high=viewymax)
     end
     # fig[3,1] = Legend(fig, ax, "Extrapolation", framevisible=false, orientation=:horizontal)
     fig[1,2] = Legend(fig, ax, "Extrapolation", framevisible=false, orientation=:vertical)

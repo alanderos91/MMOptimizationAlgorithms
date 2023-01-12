@@ -1,4 +1,12 @@
 [deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 MMOptimizationAlgorithms = "aedcfd60-408f-4c6f-bb70-948d22a121b1"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
