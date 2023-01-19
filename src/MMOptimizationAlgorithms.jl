@@ -195,7 +195,7 @@ end
 function trnewton(f::F, x0;
     options::AlgOptions=default_options(nothing),
     callback::G=DEFAULT_CALLBACK,
-    lipschitzf::LFUN=DEFAULT_LIPSCHITZ,
+    estimatef::LFUN=DEFAULT_LIPSCHITZ,
     chunks::Int=1) where {F,G,LFUN}
     # Sanity checks.
     @unpack maxiter, gtol = options
@@ -236,18 +236,12 @@ function trnewton(f::F, x0;
         end
 
         # Find a valid trust region radius.
-        c = 1.0
-        r = c * sqrt(norm(grad))
-        L = lipschitzf(evaluatef, x, xold, iter, r)
-        L < 0 && error("L must be nonnegative")
-        while c < sqrt(3 / L)
-            c = c * 2
-            r = c * sqrt(norm(grad))
-            L = lipschitzf(evaluatef, x, xold, iter, r)
-            L < 0 && error("L must be nonnegative")
-        end
-        d = 1 / c
-        H .= Symmetric(hess) + (-lambda + d*r) * I
+        L, c = estimatef(x, grad, lambda)
+        g = sqrt(norm(grad))
+        r = c*g
+        d = max(L*c/3 + lambda, 1/c)
+
+        H .= Symmetric(hess) + (-lambda + d*g) * I
 
         # Solve for Newton increment.
         cholH = cholesky!(H)
