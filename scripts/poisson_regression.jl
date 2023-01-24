@@ -1,6 +1,7 @@
 import Pkg; Pkg.activate("./scripts"); Pkg.status()
 
-using CairoMakie, Distributions, LinearAlgebra, MMOptimizationAlgorithms, Random, Roots, SpecialFunctions, StatsBase
+using CairoMakie, LaTeXStrings
+using Distributions, LinearAlgebra, MMOptimizationAlgorithms, Random, Roots, SpecialFunctions, StatsBase
 
 const MMOA = MMOptimizationAlgorithms
 
@@ -229,11 +230,12 @@ save(
     joinpath(outdir, "$(example)-histogram.$(ext)"), sfig, pt_per_unit=1,
 )
 
-fig = Figure()
+scalef = 0.9
+fig = Figure(resolution=(scalef*1000, scalef*600))
 fgrid = fig[1,1] = GridLayout()
 ax = Axis(fgrid[1:2,1],
-    xlabel="Iteration",
-    ylabel="log10[Error]",
+    xlabel=latexstring("Iteration", " ", L"m"),
+    ylabel=latexstring("", L"\log_{10}[\mathcal{L}(\beta_{m}) - \mathcal{L}(\hat{\beta})]"),
     xticks=IntegerTicks(5),
     yticks=LogTicks(IntegerTicks(2)),
     yscale=log10,
@@ -296,21 +298,21 @@ for (k, c) in enumerate((1.0, 2.0, 3.0))
         marker=ms[k],
     )
 
-    callback = CustomCallback()
-    n3 = @time newton(f_cubic, beta_init; callback=callback, options=options, nhalf=nhalf)
-    scatterlines!(ax, abs.(callback.data[:objective] .- logL) .+ 1e-16;
-        color=cs[k],
-        linestyle=:dash,
-        marker=ms[k],
-    )
+    # callback = CustomCallback()
+    # n3 = @time newton(f_cubic, beta_init; callback=callback, options=options, nhalf=nhalf)
+    # scatterlines!(ax, abs.(callback.data[:objective] .- logL) .+ 1e-16;
+    #     color=cs[k],
+    #     linestyle=:dash,
+    #     marker=ms[k],
+    # )
 
-    println()
-    println("  TR Newton loglikelihood: $(-f_exp(t3))")
-    println("  SH Newton loglikelihood: $(-f_exp(n3))")
-    println("  MSE(TR, GT) = $(mse(t3, beta0))")
-    println("  MSE(SH, GT) = $(mse(n3, beta0))")
-    println("  TR signs: $(count(>=(0), t3 .* beta0)) / $(p+1)")
-    println("  SH signs: $(count(>=(0), n3 .* beta0)) / $(p+1)")
+    # println()
+    # println("  TR Newton loglikelihood: $(-f_exp(t3))")
+    # println("  SH Newton loglikelihood: $(-f_exp(n3))")
+    # println("  MSE(TR, GT) = $(mse(t3, beta0))")
+    # println("  MSE(SH, GT) = $(mse(n3, beta0))")
+    # println("  TR signs: $(count(>=(0), t3 .* beta0)) / $(p+1)")
+    # println("  SH signs: $(count(>=(0), n3 .* beta0)) / $(p+1)")
 
     sfig = deviance_residuals(cubic_invlink, y, X, t3)
     save(
@@ -349,8 +351,8 @@ labelsA = [
 ]
 
 labelsB = [
-    "Trust Region",
-    "Step-Halving",
+    "With Trust Region",
+    "With Step-Halving",
 ]
 
 Legend(fgrid[1,2], elementsA, labelsA, "Inverse Link";
@@ -358,7 +360,7 @@ Legend(fgrid[1,2], elementsA, labelsA, "Inverse Link";
     orientation=:vertical,
 )
 
-Legend(fgrid[2,2], elementsB, labelsB, "Method";
+Legend(fgrid[2,2], elementsB, labelsB, "Newton Method";
     framevisible=false,
     orientation=:vertical,
 )
