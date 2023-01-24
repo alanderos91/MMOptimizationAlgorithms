@@ -665,6 +665,12 @@ git-tree-sha1 = "9816b296736292a80b9a3200eb7fbb57aaa3917a"
 uuid = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 version = "0.6.5"
 
+[[deps.Krylov]]
+deps = ["LinearAlgebra", "Printf", "SparseArrays"]
+git-tree-sha1 = "dd90aacbfb622f898a97c2a4411ac49101ebab8a"
+uuid = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
+version = "0.9.0"
+
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "f6250b16881adf048549549fba48b1161acdac8c"
@@ -772,7 +778,7 @@ uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
 version = "2022.2.0+0"
 
 [[deps.MMOptimizationAlgorithms]]
-deps = ["Arpack", "Distances", "ForwardDiff", "Graphs", "IterTools", "LinearAlgebra", "Polyester", "Preferences", "Printf", "Random", "StableRNGs", "Statistics", "StatsBase", "UnPack"]
+deps = ["Arpack", "Distances", "ForwardDiff", "Graphs", "IterTools", "Krylov", "LinearAlgebra", "Polyester", "Preferences", "Printf", "Random", "SparseArrays", "StableRNGs", "Statistics", "StatsBase", "UnPack"]
 path = "/home/alanderos/Projects/MMAlgorithmsPNAS/Code/"
 uuid = "aedcfd60-408f-4c6f-bb70-948d22a121b1"
 version = "0.1.0"

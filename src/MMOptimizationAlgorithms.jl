@@ -2,7 +2,7 @@ module MMOptimizationAlgorithms
 
 using Printf, UnPack
 using Random, StatsBase
-using Distances, Graphs, LinearAlgebra, ForwardDiff, Polyester
+using Distances, Graphs, Krylov, LinearAlgebra, SparseArrays, ForwardDiff, Polyester
 
 import Base: show
 import ForwardDiff: Dual
@@ -16,6 +16,7 @@ export AlgOptions, set_options,
     fused_lasso,
     node_smoothing,
     node_sparsity,
+    portfolio_optimization,
     naive_update,
     linear_update,
     exponential_update,
@@ -54,20 +55,28 @@ Abstract type for representing different kinds of problems. Must provide the fie
 """
 abstract type AbstractProblem end
 
+# Dispatch on extras field so we don't have to do it manually each time.
 evaluate(alg, prob::AbstractProblem, hparams) = evaluate(alg, prob, prob.extras, hparams)
+update_datastructures!(alg, prob::AbstractProblem, hparams) = update_datastructures!(alg, prob, prob.extras, hparams)
 mm_step!(alg, prob::AbstractProblem, hparams) = mm_step!(alg, prob, prob.extras, hparams)
 save_for_warm_start!(prob::AbstractProblem) = save_for_warm_start!(prob, prob.extras)
+
+# Defaults for update_datastructures!; not needed for MMPS or SD algorithms.
+update_datastructures!(::MMPS, prob, extras, hparams) = nothing
+update_datastructures!(::SD, prob, extras, hparams) = nothing
 
 include(joinpath("projections", "L0Projection.jl"))
 include(joinpath("projections", "SimplexProjection.jl"))
 include(joinpath("projections", "L1BallProjection.jl"))
 include(joinpath("projections", "SparseSimplexProjection.jl"))
+include(joinpath("projections", "AffineProjection.jl"))
 
 include("callbacks.jl")
 include("utilities.jl")
 
 include(joinpath("problems", "LeastSquaresProblem.jl"))
 include(joinpath("problems", "GraphLearningProblem.jl"))
+include(joinpath("problems", "PortfolioProblem.jl"))
 
 """
 Placeholder for callbacks in main functions.
@@ -94,6 +103,7 @@ function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hype
     hyperparams = (; init_hyperparams..., rho=rho_init,)
 
     # Update data structures due to hyperparameters.
+    update_datastructures!(algorithm, problem, hyperparams)
 
     # Check initial values for loss, objective, distance, and norm of gradient.
     state = evaluate(algorithm, problem, hyperparams)
@@ -131,6 +141,7 @@ function proxdist!(algorithm::AbstractMMAlg, problem::AbstractProblem, init_hype
             rho
         end
         hyperparams = (; hyperparams..., rho=rho,)
+        update_datastructures!(algorithm, problem, hyperparams)
     end
 
     # Evaluate objective at the final solution estimate.
@@ -175,9 +186,12 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
         callback((iter, state), problem, hyperparams)
 
         # Assess convergence.
-        is_stationary = state.gradient < gtol || abs(state.objective - old) < rtol * (1 + old)
+        diff = abs(state.objective - old)
+        is_stationary = state.gradient < gtol || diff < rtol * (1 + old)
         if is_stationary
             break
+        elseif state.objective > old
+            @warn "Descent condition not satisfied at iteration $(iter)." new=state.objective old=old diff=diff
         elseif iter < maxiter
             has_increased = state.objective > old
             needs_reset = iter < nesterov || has_increased
@@ -368,5 +382,6 @@ end
 
 include("constrained_least_squares.jl")
 include("graph_learning.jl")
+include("portfolio_optimization.jl")
 
 end # module
