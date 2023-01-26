@@ -46,7 +46,7 @@ function save_for_warm_start!(prob::PortfolioProblem)
     return nothing
 end
 
-struct PortfolioQuadratic{T,APT<:AffineProjection,LHS,RHS,CHOL}
+struct PortfolioQuadratic{T,APT<:AffineProjection,LS}
     W::Matrix{T}
     L::Matrix{T}
     W_differences::Matrix{T}         # Lw
@@ -59,9 +59,7 @@ struct PortfolioQuadratic{T,APT<:AffineProjection,LHS,RHS,CHOL}
     projection1::L1BallProjection{T} # P₁
     projection2::L1BallProjection{T} # P₂
     projection3::APT                 # P₃
-    lhs::LHS
-    rhs::RHS
-    chol::CHOL
+    linear_solve::LS
 end
 
 function PortfolioQuadratic{T}(alg::AbstractMMAlg, R, wealth_init, wealth_term) where T<:Real
@@ -85,15 +83,15 @@ function PortfolioQuadratic{T}(alg::AbstractMMAlg, R, wealth_init, wealth_term) 
     projection2 = L1BallProjection{T}((n_periods-1)*n_assets)
     projection3 = AffineProjection(A, b)
 
-    lhs, rhs, chol = allocate_linear_solver(alg, T, n_assets, n_periods)
-    APT, LHS, RHS, CHOL = typeof(projection3), typeof(lhs), typeof(rhs), typeof(chol)
+    linear_solve = portfolio_pq_allocate_linear_solver(alg, T, n_assets, n_periods)
+    APT, LS = typeof(projection3), typeof(linear_solve)
 
-    return PortfolioQuadratic{T,APT,LHS,RHS,CHOL}(
+    return PortfolioQuadratic{T,APT,LS}(
         W, L, W_differences,
         residual1, residual2, residual3, 
         projected1, projected2, projected3,
         projection1, projection2, projection3,
-        lhs, rhs, chol
+        linear_solve
     )
 end
 
@@ -158,7 +156,7 @@ function evaluate(::AbstractMMAlg, prob::PortfolioProblem, extras::PortfolioQuad
     return (; loss=loss, objective=objective, distance=sqrt(distsq), gradient=sqrt(gradsq),)
 end
 
-function allocate_linear_solver(::SD, T, n_assets, n_periods)
+function portfolio_pq_allocate_linear_solver(::SD, T, n_assets, n_periods)
     return nothing, nothing, nothing
 end
 
@@ -189,51 +187,38 @@ function mm_step!(alg::SD, prob::PortfolioProblem, extras::PortfolioQuadratic, h
     return nothing
 end
 
-function allocate_linear_solver(::MML, T, n_assets, n_periods)
+function portfolio_pq_allocate_linear_solver(::MML, T, n_assets, n_periods)
     m = n_assets*n_periods
     lhs = Matrix(one(T)*I(m))
     rhs = zeros(m)
     
-    # @info "Initial Cholesky allocation"
-    # @time begin
-        chol = cholesky(Symmetric(lhs))
-    # end
+    chol = cholesky(Symmetric(lhs))
 
-    return lhs, rhs, chol
+    return (;lhs=lhs, rhs=rhs, chol=chol)
 end
 
 function update_datastructures!(::MML, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
     @unpack C, n_assets = prob
-    @unpack L, lhs, chol = extras
+    @unpack L, linear_solve = extras
+    @unpack lhs, rhs, chol = linear_solve
     @unpack rho, alpha = hparams
     T = float_type(prob)
 
     a = rho * (alpha[1] + alpha[3])
     b = rho * alpha[2]
 
-    # Reconstruct Hessian.
-    # @info "Resetting entries"
-    # @time begin
-        fill!(lhs, zero(T))
-    # end
+    fill!(lhs, zero(T))
 
-    # @info "Reconstructing Hessian"
-    # @time begin
-        for j in eachindex(C)
+    for j in eachindex(C)
         idx = n_assets*(j-1)+1 : n_assets*j 
         H = view(lhs, idx, idx)
         copyto!(H, C[j])
         H .= H + a*I
-        end
-        mul!(lhs, transpose(L), L, b, one(T))
-    # end
+    end
+    mul!(lhs, transpose(L), L, b, one(T))
 
-    # Update its Cholesky decomposition.
-    # @info "Updating Cholesky decomposition"
-    # @time begin
-        F = cholesky!(Symmetric(lhs))
-        copyto!(chol.factors, F.factors)
-    # end
+    F = cholesky!(Symmetric(lhs))
+    copyto!(chol.factors, F.factors)
 
     return nothing
 end
@@ -241,18 +226,102 @@ end
 function mm_step!(alg::MML, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
     @unpack rho, alpha = hparams
     @unpack W, C = prob
-    @unpack L, projected1, projected2, projected3, rhs, chol = extras
+    @unpack L, projected1, projected2, projected3, linear_solve = extras
+    @unpack rhs, chol = linear_solve
 
     evaluate(alg, prob, extras, hparams)
 
     # Form the RHS of linear system.
-    copyto!(rhs, projected1)
+    copyto!(rhs, vec(projected1))
     mul!(rhs, transpose(L), vec(projected2), rho*alpha[2], rho*alpha[1])
     axpy!(rho*alpha[3], vec(projected3), rhs)
 
     # Solve using the cached Cholesky decomposition.
     ldiv!(vec(W), chol, rhs)
-    # vec(W) .= chol \ rhs
+
+    return nothing
+end
+
+function portfolio_pq_allocate_linear_solver(::MMAL, T, n_assets, n_periods)
+    m = n_assets * n_periods
+    cholC = [zeros(T, n_assets, n_assets) for _ in 1:n_periods]
+    M = zeros(T, m, m)
+    S = zeros(T, m)
+    Psi = Diagonal(zeros(T, m))
+    buffer = zeros(T, m)
+    rhs = zeros(m)
+    (;cholC=cholC, M=M, S=S, Psi=Psi, buffer=buffer, rhs=rhs)
+end
+
+function update_datastructures!(::MMAL, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    function extract_cholesky!(dst, src)
+        copyto!(dst, src)
+        cholesky!(Symmetric(dst, :L))
+    end
+    @unpack C, n_assets, n_periods = prob
+    @unpack L, linear_solve = extras
+    @unpack Psi, S, cholC, M = linear_solve
+    @unpack rho, alpha = hparams
+    T = float_type(prob)
+
+    needs_initialization = all(isequal(0), S)
+
+    if needs_initialization
+        # Compute Z = L⁻¹ Dᵀ
+        m = n_assets * n_periods
+        n = n_assets * (n_periods-1)
+        Z = zeros(T, m, 2*m+n)
+
+        Z[:, 1:m] .= sqrt(alpha[1]) * I(m)
+        Z[:, m+1:m+n] .= sqrt(alpha[2]) * transpose(L)
+        Z[:, m+n+1:2*m+n] .= sqrt(alpha[3]) * I(m)
+
+        for j in eachindex(C)
+            F = extract_cholesky!(cholC[j], C[j])
+            rows = n_assets*(j-1)+1 : n_assets*j
+            blk = view(Z, rows, :)
+            ldiv!(F.L, blk)
+        end
+        # SVD of Z = U * S * Vᵀ
+        F = svd!(Z, full=false, alg=LinearAlgebra.DivideAndConquer())
+        copyto!(M, F.U)
+        copyto!(S, F.S)
+
+        # Compute M = (Lᵀ)⁻¹ U
+        for j in eachindex(C)
+            rows = n_assets*(j-1)+1 : n_assets*j
+            L_j = LowerTriangular(cholC[j])
+            ldiv!(transpose(L_j), view(M, rows, :))
+        end
+
+        @assert all(!isequal(0), S)
+    end
+
+    for i in eachindex(S)
+        Psi.diag[i] = 1 / (S[i]^2 + inv(rho))
+    end
+
+    return nothing
+end
+
+function mm_step!(alg::MMAL, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    @unpack rho, alpha = hparams
+    @unpack W, C, n_assets, n_periods = prob
+    @unpack L, projected1, projected2, projected3, linear_solve = extras
+    @unpack cholC, M, Psi, buffer, rhs = linear_solve
+    T = float_type(prob)
+
+    evaluate(alg, prob, extras, hparams)
+
+    # Form the RHS of linear system.
+    copyto!(rhs, vec(projected1))
+    mul!(rhs, transpose(L), vec(projected2), alpha[2], alpha[1])
+    axpy!(alpha[3], vec(projected3), rhs)
+
+    # Solve by computing: vec(W) = M Ψ Mᵀ vec(RHS)
+    mul!(buffer, transpose(M), rhs)
+    lmul!(Psi, buffer)
+    mul!(vec(W), M, buffer)
 
     return nothing
 end

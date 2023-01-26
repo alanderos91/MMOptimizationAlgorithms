@@ -7,6 +7,8 @@ using CSV, DataFrames
 using LinearAlgebra, Statistics
 using MMOptimizationAlgorithms
 
+import Logging
+
 const MMOA = MMOptimizationAlgorithms
 const OPTIONS = set_options(;
     maxiter=10^4,
@@ -14,7 +16,7 @@ const OPTIONS = set_options(;
     gtol=1e-4,
     dtol=1e-6,
     rtol=1e-8,
-    rhof=geometric_progression(2.0),
+    rhof=geometric_progression(1.5),
     nesterov=10,
     rho_max=Inf,
 )
@@ -43,7 +45,16 @@ function annualize(r)
     v = v^(1/n) - 1
 end
 
-n_years = 4
+function benchmark(algorithm, C, R, xi_init, xi_term, T; kwargs...)
+    C_T = view(C, 1:T)
+    R_T = view(R, :, 1:T)
+
+    @elapsed MMOA.portfolio_optimization(algorithm, C_T, R_T, xi_init, xi_term;
+        kwargs...,
+    )
+end
+
+n_years = 8
 weeks_per_year = 52
 days_per_week = 5
 days_per_year = weeks_per_year * days_per_week
@@ -98,9 +109,9 @@ Data from:
 """)
 
 a = 2/3
-result = @time MMOA.portfolio_optimization(MML(), C, R, xi_init, xi_term;
+result = @time MMOA.portfolio_optimization(MMAL(), C, R, xi_init, xi_term;
     options=OPTIONS,
-    callback=VerboseCallback(10),
+    callback=VerboseCallback(50),
     tau=(1e3, 1e3),
     alpha=(a/2, a/2, 1-a),
 )
@@ -128,3 +139,43 @@ println("""
 
 CSV.write("/home/alanderos/Desktop/assets.csv", DataFrame(W, :auto), header=false)
 CSV.write("/home/alanderos/Desktop/diffs.csv", DataFrame(result.differences, :auto), header=false)
+
+Ts = 2:8
+chol_time = zeros(length(Ts))
+accl_time = zeros(length(Ts))
+xi_init = ones(length(Ts))
+xi_term = [(1 + expected_annual_return/100)^T for T in Ts]
+
+logger = Logging.ConsoleLogger(stdout, Logging.Warn+1)
+Logging.with_logger(logger) do
+    for (k, T) in enumerate(Ts)
+        println("Cholesky algorithm, $(T) periods")
+        chol_time[k] = benchmark(MML(), C, R, xi_init[k], xi_term[k], T;
+            options=OPTIONS,
+            tau=(1e3, 1e3),
+            alpha=(a/2, a/2, 1-a),
+        )
+        println("  Completed in ", chol_time[k], " seconds.\n")
+        println("Accelerated algorithm, $(T) periods")
+        accl_time[k] = benchmark(MMAL(), C, R, xi_init[k], xi_term[k], T;
+            options=OPTIONS,
+            tau=(1e3, 1e3),
+            alpha=(a/2, a/2, 1-a),
+        )
+        println("  Completed in ", accl_time[k], " seconds.\n")
+    end
+end
+
+CSV.write(
+    "/home/alanderos/Desktop/portfolio_optimization_benchmark.csv",
+    DataFrame(
+        number_assets=n_assets*ones(length(Ts)),
+        number_periods=Ts,
+        xi_init=xi_init,
+        xi_term=xi_term,
+        cholesky_seconds=chol_time,
+        accelerated_seconds=accl_time,
+        ratio=chol_time ./ accl_time,
+    ),
+    header=true,
+)

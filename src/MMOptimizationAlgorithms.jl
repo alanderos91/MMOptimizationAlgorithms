@@ -8,7 +8,7 @@ import Base: show
 import ForwardDiff: Dual
 
 export AlgOptions, set_options,
-    MML, MMPS, SD, TRNewton,
+    MML, MMAL, MMPS, SD, TRNewton,
     VerboseCallback, HistoryCallback,
     trnewton,
     newton,
@@ -30,6 +30,13 @@ MM w/ linearization.
 Majorize an objective with a quadratic surrogate and minimize it.
 """
 struct MML <: AbstractMMAlg end
+
+"""
+MM w/ accelerated linearization.
+
+Majorize an objective with a quadratic surrogate and minimize it. In this case the Hessian of the loss is constant.
+"""
+struct MMAL <: AbstractMMAlg end
 
 """
 MM w/ parameter separation.
@@ -192,6 +199,7 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
             break
         elseif state.objective > old
             @warn "Descent condition not satisfied at iteration $(iter)." new=state.objective old=old diff=diff
+            old = state.objective
         elseif iter < maxiter
             has_increased = state.objective > old
             needs_reset = iter < nesterov || has_increased
