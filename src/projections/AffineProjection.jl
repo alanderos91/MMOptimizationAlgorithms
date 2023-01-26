@@ -20,7 +20,7 @@ function AffineProjection(LHS::AbstractMatrix, RHS::AbstractVector)
 end
 
 function (P::AffineProjection)(x)
-    # Unpack objects. The vector y is aliased to the solution of the LSMR step.
+    # Unpack objects. The vector y is aliased to the solution of the CG step.
     @unpack A, AAt, b, r, y, solver = P
     T = eltype(x)
 
@@ -28,7 +28,7 @@ function (P::AffineProjection)(x)
     copyto!(r, b)
     mul!(r, A, x, one(T), -one(T))
 
-    # Solve AᵀA y = r.
+    # Solve AAᵀ y = r.
     cg!(solver, AAt, r)
 
     # Compute x - Aᵀy.
