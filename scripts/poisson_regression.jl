@@ -234,8 +234,8 @@ scalef = 0.9
 fig = Figure(resolution=(scalef*1000, scalef*600))
 fgrid = fig[1,1] = GridLayout()
 ax = Axis(fgrid[1:2,1],
-    xlabel=latexstring("Iteration", " ", L"m"),
-    ylabel=latexstring("", L"\log_{10}[\mathcal{L}(\beta_{m}) - \mathcal{L}(\hat{\beta})]"),
+    xlabel=latexstring("Iteration", " ", L"n"),
+    ylabel=latexstring("", L"\log_{10}[\mathcal{L}(\beta_{n}) - \mathcal{L}(\hat{\beta})]"),
     xticks=IntegerTicks(5),
     yticks=LogTicks(IntegerTicks(2)),
     yscale=log10,
