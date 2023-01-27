@@ -326,24 +326,57 @@ function mm_step!(alg::MMAL, prob::PortfolioProblem, extras::PortfolioQuadratic,
     return nothing
 end
 
-# function rho_sensitivity(prob::PortfolioProblem, extras::PortfolioQuadratic, rho, hparams)
-#     X, RHS, beta = prob.design, extras.residuals, extras.projected
-#     dbeta = similar(beta)
-#     p = length(beta)
-#     T = float_type(prob)
+function rho_sensitivity(prob::PortfolioProblem, extras::PortfolioQuadratic, rho, hparams)
+    @unpack alpha, tau = hparams
+    @unpack W, C, n_assets, n_periods = prob
+    @unpack W_differences, L, residual1, residual2, residual3, linear_solve = extras
+    @unpack A, AAt, solver, r, y = extras.projection3
+    @unpack rhs = linear_solve
+    T = float_type(prob)
+    m = n_assets * n_periods
 
-#     # negE = I - dP(x); negation of sparsity pattern
-#     negE = zeros(T, p, p)
-#     for j in axes(negE, 2)
-#         negE[j,j] = ifelse(iszero(beta[j]), one(T), zero(T))
-#     end
+    P1 = BallProjectionWrapper(L1BallProjection, tau[1])
+    P2 = BallProjectionWrapper(L1BallProjection, tau[2])
 
-#     # solve for dbeta
-#     A = transpose(X)*X + rho*negE
-#     ldiv!(dbeta, lu!(A), RHS)
+    # Compute the differentials.
+    dP1 = ForwardDiff.jacobian(P1, vec(W))
+    dP1 .= I - dP1
 
-#     return prob.coefficients, dbeta
-# end
+    dP2 = transpose(L) * (I - ForwardDiff.jacobian(P2, vec(W_differences))) * L
+
+    dP3 = zeros(T, m, m)
+    for j in axes(A, 2)
+        # Solve for column j of dP3: Aᵀ(AAᵀ)⁻¹A[:,j]
+        # Object y is aliased to the solution in the CG step.
+        colA_j = view(A, :, j)
+        coldP3_j = view(dP3, :, j)
+        copyto!(r, colA_j)
+        cg!(solver, AAt, r)
+        mul!(coldP3_j, transpose(A), y)
+    end
+
+    # Form LHS
+    lhs = zeros(T, m, m)
+    for j in eachindex(C)
+        idx = n_assets*(j-1)+1 : n_assets*j 
+        H = view(lhs, idx, idx)
+        copyto!(H, C[j])
+    end
+    axpy!(rho*alpha[1], dP1, lhs)
+    axpy!(rho*alpha[2], dP2, lhs)
+    axpy!(rho*alpha[3], dP3, lhs)
+    
+    # Form RHS
+    copyto!(rhs, vec(residual1))
+    mul!(rhs, transpose(L), vec(residual2), alpha[2], alpha[1])
+    axpy!(alpha[3], vec(residual3), rhs)
+
+    # solve for dw
+    dW = similar(W)
+    ldiv!(vec(dW), cholesky!(Symmetric(lhs)), rhs)
+
+    return prob.W, dW
+end
 
 function portfolio_constraint_matrix(R)
     n_assets, n_periods = size(R)
