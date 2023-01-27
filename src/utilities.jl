@@ -292,3 +292,15 @@ function randmvn!(rng, X, S)
     end
     return X
 end
+
+struct BallProjectionWrapper{T}
+    P::T
+    r::Float64
+end
+
+function (F::BallProjectionWrapper)(x::AbstractVector{T}) where T
+    y = copy(x)
+    P = F.P{T}(length(y))
+    P(y, T(F.r))
+    return y
+end

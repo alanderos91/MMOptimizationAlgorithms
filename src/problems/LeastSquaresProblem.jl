@@ -190,15 +190,15 @@ function evaluate(::AbstractMMAlg, prob::LeastSquaresProblem, extras::FusedLasso
     copyto!(dres1, proj1);  axpy!(-one(T), beta, dres1)
     copyto!(dres2, proj2);  axpy!(-one(T), diff, dres2)
 
-    # Evaluate gradient, -Xᵀ(y - X β) - ρ[P(β) - β] - ρDᵀ[P(Dβ) - Dβ]
+    # Evaluate gradient, -Xᵀ(y - X β) - 0.5*ρ[P(β) - β] - 0.5*ρDᵀ[P(Dβ) - Dβ]
     fill!(grad, zero(T))
     mul!(grad, X', res, -one(T), zero(T))
-    axpy!(-rho, dres1, grad)
-    fdt_axpy!(-rho, dres2, grad)
+    axpy!(-rho/2, dres1, grad)
+    fdt_axpy!(-rho/2, dres2, grad)
 
     # Evaluate current state.
     loss = dot(res, res)
-    distsq = dot(dres1, dres1) + dot(dres2, dres2)
+    distsq = 0.5*dot(dres1, dres1) + 0.5*dot(dres2, dres2)
     objective = 0.5 * (loss + rho*distsq)
     gradsq = dot(grad, grad)
 
@@ -214,7 +214,7 @@ function mm_step!(alg::MMPS, prob::LeastSquaresProblem, extras::FusedLasso, hpar
     p = length(beta)
     normsqX = norm(X, 2)^2
     normsqD = 2*(p-1)
-    t = inv(normsqX + rho*(p + normsqD))
+    t = inv(normsqX + rho/2*(p + normsqD))
     axpy!(-t, g, beta)
 
     return nothing
@@ -231,7 +231,7 @@ function mm_step!(alg::SD, prob::LeastSquaresProblem, extras::FusedLasso, hparam
     mul!(r, X, g)
     fd!(d, g)
     a, b, c = dot(g, g), dot(r, r), dot(d, d)
-    t = ifelse(iszero(a) && iszero(b) && iszero(c), zero(T), a/(b + rho*(a + c)))
+    t = ifelse(iszero(a) && iszero(b) && iszero(c), zero(T), a/(b + rho/2*(a + c)))
 
     axpy!(-t, g, beta)
 
@@ -243,16 +243,9 @@ function rho_sensitivity(prob::LeastSquaresProblem, extras::FusedLasso, rho, hpa
     dres1, dres2 = extras.residuals1, extras.residuals2
     Dbeta = extras.differences
 
-    function P1(x::AbstractVector{T}) where T
-        y = copy(x)
-        L1BallProjection{T}(length(y))(y, T(hparams.radius1))
-        return y
-    end
-    function P2(x::AbstractVector{T}) where T
-        y = copy(x)
-        L1BallProjection{T}(length(y))(y, T(hparams.radius2))
-        return y
-    end
+    P1 = BallProjectionWrapper(L1BallProjection, hparams.radius1)
+    P2 = BallProjectionWrapper(L1BallProjection, hparams.radius2)
+
     T = float_type(prob)
     p = length(beta)
     dbeta = zeros(T, p)
@@ -277,12 +270,12 @@ function rho_sensitivity(prob::LeastSquaresProblem, extras::FusedLasso, rho, hpa
         src = view(tmp, :, j)
         fdt!(dst, src)
     end
-    axpy!(one(T), dP1, A)
+    axpby!(T(1//2), dP1, T(1//2), A)
     mul!(A, transpose(X), X, one(T), T(rho))
 
     # Compute RHS: [P(β) - β] + Dᵀ[P(Dβ) - Dβ]
     fdt!(RHS, dres2)
-    axpy!(one(T), dres1, RHS)
+    axpby!(T(1//2), dres1, T(1//2), RHS)
 
     # Solve for dbeta.
     ldiv!(dbeta, lu!(A), RHS)
