@@ -351,8 +351,8 @@ labelsA = [
 ]
 
 labelsB = [
-    "With Trust Region",
-    "With Step-Halving",
+    "Newton with trust region",
+    "Newton with step-halving",
 ]
 
 Legend(fgrid[1,2], elementsA, labelsA, "Inverse Link";
@@ -360,7 +360,7 @@ Legend(fgrid[1,2], elementsA, labelsA, "Inverse Link";
     orientation=:vertical,
 )
 
-Legend(fgrid[2,2], elementsB, labelsB, "Newton Method";
+Legend(fgrid[2,2], elementsB, labelsB, "";
     framevisible=false,
     orientation=:vertical,
 )
