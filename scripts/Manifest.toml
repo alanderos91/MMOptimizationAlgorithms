@@ -35,18 +35,6 @@ git-tree-sha1 = "62e51b39331de8911e4a7ff6f5aaf38a5f4cc0ae"
 uuid = "ec485272-7323-5ecc-a04f-4719b315124d"
 version = "0.2.0"
 
-[[deps.Arpack]]
-deps = ["Arpack_jll", "Libdl", "LinearAlgebra", "Logging"]
-git-tree-sha1 = "9b9b347613394885fd1c8c7729bfc60528faa436"
-uuid = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
-version = "0.5.4"
-
-[[deps.Arpack_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "OpenBLAS_jll", "Pkg"]
-git-tree-sha1 = "5ba6c757e8feccf03a1554dfaf3e26b3cfc7fd5e"
-uuid = "68821587-b530-5797-8361-c406ea357684"
-version = "3.5.1+1"
-
 [[deps.ArrayInterface]]
 deps = ["ArrayInterfaceCore", "Compat", "IfElse", "LinearAlgebra", "Static"]
 git-tree-sha1 = "6d0918cb9c0d3db7fe56bea2bc8638fc4014ac35"
@@ -778,7 +766,7 @@ uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
 version = "2022.2.0+0"
 
 [[deps.MMOptimizationAlgorithms]]
-deps = ["Arpack", "Distances", "ForwardDiff", "Graphs", "IterTools", "Krylov", "LinearAlgebra", "Polyester", "Preferences", "Printf", "Random", "SparseArrays", "StableRNGs", "Statistics", "StatsBase", "UnPack"]
+deps = ["Distances", "ForwardDiff", "Graphs", "IterTools", "Krylov", "LinearAlgebra", "Polyester", "Preferences", "Printf", "Random", "SparseArrays", "StableRNGs", "Statistics", "StatsBase", "UnPack"]
 path = "/home/alanderos/Projects/MMAlgorithmsPNAS/Code/"
 uuid = "aedcfd60-408f-4c6f-bb70-948d22a121b1"
 version = "0.1.0"

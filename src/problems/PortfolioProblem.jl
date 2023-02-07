@@ -268,27 +268,52 @@ function update_datastructures!(::MMAL, prob::PortfolioProblem, extras::Portfoli
 
     if needs_initialization
         # Compute Z = L⁻¹ Dᵀ
-        m = n_assets * n_periods
-        n = n_assets * (n_periods-1)
-        Z = zeros(T, m, 2*m+n)
+        # m = n_assets * n_periods
+        # n = n_assets * (n_periods-1)
+        # Z = zeros(T, m, 2*m+n)
 
-        Z[:, 1:m] .= sqrt(alpha[1]) * I(m)
-        Z[:, m+1:m+n] .= sqrt(alpha[2]) * transpose(L)
-        Z[:, m+n+1:2*m+n] .= sqrt(alpha[3]) * I(m)
+        # Z[:, 1:m] .= sqrt(alpha[1]) * I(m)
+        # Z[:, m+1:m+n] .= sqrt(alpha[2]) * transpose(L)
+        # Z[:, m+n+1:2*m+n] .= sqrt(alpha[3]) * I(m)
 
-        for j in eachindex(C)
+        # for j in eachindex(C)
+        #     F = extract_cholesky!(cholC[j], C[j])
+        #     rows = n_assets*(j-1)+1 : n_assets*j
+        #     blk = view(Z, rows, :)
+        #     ldiv!(F.L, blk)
+        # end
+        # # SVD of Z = U * S * Vᵀ
+        # F = svd!(Z, full=false, alg=LinearAlgebra.DivideAndConquer())
+        # copyto!(M, F.U)
+        # copyto!(S, F.S)
+
+        # Compute Z = L⁻¹ DᵀD (L⁻¹)ᵀ
+        Z = alpha[2]*Matrix(L'L) + (alpha[1]+alpha[3])*I
+        @inbounds for j in eachindex(C)
             F = extract_cholesky!(cholC[j], C[j])
-            rows = n_assets*(j-1)+1 : n_assets*j
-            blk = view(Z, rows, :)
+            start = n_assets*(j-1)+1
+
+            # Main diagonal
+            blk = view(Z, start:start+n_assets-1, start:start+n_assets-1)
+            ldiv!(F.U, blk)
             ldiv!(F.L, blk)
+
+            # Lower diagonal
+            if j > 1
+                blk = view(Z, start:start+n_assets-1, start-n_assets:start-1)
+                A = LowerTriangular(cholC[j])
+                B = LowerTriangular(cholC[j-1])
+                ldiv!(transpose(B), blk)
+                ldiv!(A, blk)
+            end
         end
-        # SVD of Z = U * S * Vᵀ
-        F = svd!(Z, full=false, alg=LinearAlgebra.DivideAndConquer())
-        copyto!(M, F.U)
-        copyto!(S, F.S)
+        
+        F = eigen!(Symmetric(Z, :L))
+        copyto!(M, F.vectors)
+        copyto!(S, F.values)
 
         # Compute M = (Lᵀ)⁻¹ U
-        for j in eachindex(C)
+        @inbounds for j in eachindex(C)
             rows = n_assets*(j-1)+1 : n_assets*j
             L_j = LowerTriangular(cholC[j])
             ldiv!(transpose(L_j), view(M, rows, :))
@@ -297,8 +322,9 @@ function update_datastructures!(::MMAL, prob::PortfolioProblem, extras::Portfoli
         @assert all(!isequal(0), S)
     end
 
-    for i in eachindex(S)
-        Psi.diag[i] = 1 / (S[i]^2 + inv(rho))
+    @inbounds for i in eachindex(S)
+        # Psi.diag[i] = 1 / (S[i]^2 + inv(rho))
+        Psi.diag[i] = 1 / (S[i] + inv(rho))
     end
 
     return nothing
