@@ -352,6 +352,198 @@ function mm_step!(alg::MMAL, prob::PortfolioProblem, extras::PortfolioQuadratic,
     return nothing
 end
 
+####                               ####
+#### MMBS: MM via Block Separation ####
+####                               ####
+
+function portfolio_pq_allocate_linear_solver(::MMBS{:cholesky}, T, n_assets, n_periods)
+    cholC = [zeros(T, n_assets, n_assets) for _ in 1:n_periods]
+    W_old = zeros(T, n_assets, n_periods)
+    rhs = zeros(n_assets)
+    (;cholC=cholC, W_old=W_old, rhs=rhs)
+end
+
+function update_datastructures!(::MMBS{:cholesky}, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    #
+    @unpack C, n_assets, n_periods = prob
+    @unpack L, linear_solve = extras
+    @unpack cholC = linear_solve
+    @unpack rho, alpha = hparams
+
+    for j in eachindex(C)
+        if 2 <= j <= n_periods-1
+            gamma = alpha[1] + 4*alpha[2] + alpha[3]
+        else # j == 1 || j == n_periods
+            gamma = alpha[1] + 2*alpha[2] + alpha[3]
+        end
+        cholC[j] .= C[j] + rho*gamma*I
+        cholesky!(Symmetric(cholC[j], :L))
+        # F = Cholesky(LowerTriangular(cholC[j]))
+        # @assert F.L * F.U ≈ Symmetric(C[j] + rho*gamma*I, :L) 
+    end
+
+    return nothing
+end
+
+function mm_step!(alg::MMBS{:cholesky}, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    @unpack rho, alpha = hparams
+    @unpack W, C, n_assets, n_periods = prob
+    @unpack projected1, projected2, projected3, linear_solve = extras
+    @unpack cholC, W_old, rhs = linear_solve
+
+    evaluate(alg, prob, extras, hparams)
+    copyto!(W_old, W)
+
+    for j in eachindex(C)
+        # RHS = ρ * (α₁*P₁,ⱼ + α₃*P₃,ⱼ)
+        copyto!(rhs, view(projected1, :, j))
+        axpby!(rho*alpha[3], view(projected3, :, j), rho*alpha[1], rhs)
+
+        # Accumulate contribution from dist(D*vec(W), S₂)²
+        if j == 1 # n_periods > 1
+            # += ρ * α₂ * (P₂,₁ + wₙ,₁ + wₙ,₂)
+            axpy!(-rho*alpha[2], view(projected2, :, 1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, 1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, 2), rhs)
+        elseif 2 <= j <= n_periods-1
+            # += ρ * α₂ * (P₂,ⱼ - P₂,ⱼ₋₁ + wₙ,ⱼ₊₁ + 2wₙ,ⱼ + wₙ,ⱼ₋₁)
+            axpy!(-rho*alpha[2], view(projected2, :, j), rhs)
+            axpy!(rho*alpha[2], view(projected2, :, j-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, j+1), rhs)
+            axpy!(2*rho*alpha[2], view(W_old, :, j), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, j-1), rhs)
+        else # j == n_periods
+            # += ρ * α₂ * (-P₂,ⱼ₋₁ + wₙ,ⱼ₋₁ + wₙ,ⱼ)
+            axpy!(rho*alpha[2], view(projected2, :, n_periods-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, n_periods-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, n_periods), rhs)
+        end
+
+        # Solve the linear system for block j.
+        w = view(W, :, j)
+        F = Cholesky(LowerTriangular(cholC[j]))
+        ldiv!(w, F, rhs)
+
+        # if 2 <= j <= n_periods-1
+        #     gamma = alpha[1] + 4*alpha[2] + alpha[3]
+        # else # j == 1 || j == n_periods
+        #     gamma = alpha[1] + 2*alpha[2] + alpha[3]
+        # end
+        # A = Symmetric(C[j] + rho*gamma*I, :L)
+        # @assert F.L * F.U ≈ A
+        # @assert A \ rhs ≈ w
+    end
+
+    return nothing
+end
+
+function portfolio_pq_allocate_linear_solver(::MMBS{:eigen}, T, n_assets, n_periods)
+    O = Vector{Matrix{T}}(undef, n_periods)
+    Sigma = Vector{Vector{T}}(undef, n_periods)
+    Psi = Vector{Vector{T}}(undef, n_periods)
+    M = Vector{Matrix{T}}(undef, n_periods)
+    rhs = Vector{Vector{T}}(undef, n_periods)
+    W_old = zeros(T, n_assets, n_periods)
+
+    for j in eachindex(O)
+        O[j] = zeros(T, n_assets, n_assets)
+        Sigma[j] = zeros(T, n_assets)
+        Psi[j] = zeros(T, n_assets)
+        M[j] = zeros(T, n_assets, n_assets)
+        rhs[j] = zeros(T, n_assets)
+    end
+
+    (;O=O, Sigma=Sigma, Psi=Psi, M=M, W_old=W_old, rhs=rhs)
+end
+
+function update_datastructures!(::MMBS{:eigen}, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    #
+    @unpack C, n_assets, n_periods = prob
+    @unpack linear_solve = extras
+    @unpack O, Sigma, Psi, M = linear_solve
+    @unpack rho, alpha = hparams
+
+    needs_initialization = all(isequal(0), Sigma[1])
+
+    if needs_initialization
+        nt = BLAS.get_num_threads()
+        BLAS.set_num_threads(nt ÷ Threads.nthreads())
+        @batch per=core for j in eachindex(C)
+            F = eigen(Symmetric(C[j]))
+            copyto!(O[j], F.vectors)
+            copyto!(Sigma[j], F.values)
+        end
+        BLAS.set_num_threads(nt)
+    end
+
+    nt = BLAS.get_num_threads()
+    BLAS.set_num_threads(nt ÷ Threads.nthreads())
+    @batch per=core for j in eachindex(Psi)
+        blkPsi, blkSigma = Psi[j], Sigma[j]
+        if 2 <= j <= n_periods-1
+            gamma = alpha[1] + 4*alpha[2] + alpha[3]
+        else # j == 1 || j == n_periods
+            gamma = alpha[1] + 2*alpha[2] + alpha[3]
+        end
+        for i in eachindex(blkPsi)
+            blkPsi[i] = 1 / (blkSigma[i] + rho*gamma)
+        end
+
+        # M = Oᵀ Ψ O
+        M[j] .= O[j] * Diagonal(blkPsi) * transpose(O[j])
+    end
+    BLAS.set_num_threads(nt)
+
+    return nothing
+end
+
+function mm_step!(alg::MMBS{:eigen}, prob::PortfolioProblem, extras::PortfolioQuadratic, hparams)
+    @unpack rho, alpha = hparams
+    @unpack W, C, n_assets, n_periods = prob
+    @unpack projected1, projected2, projected3, linear_solve = extras
+    @unpack M, W_old = linear_solve
+
+    evaluate(alg, prob, extras, hparams)
+    copyto!(W_old, W)
+
+    nt = BLAS.get_num_threads()
+    BLAS.set_num_threads(nt ÷ Threads.nthreads())
+    @batch per=core for j in eachindex(C)
+        rhs = linear_solve.rhs[j]
+
+        # RHS = ρ * (α₁*P₁,ⱼ + α₃*P₃,ⱼ)
+        copyto!(rhs, view(projected1, :, j))
+        axpby!(rho*alpha[3], view(projected3, :, j), rho*alpha[1], rhs)
+
+        # Accumulate contribution from dist(D*vec(W), S₂)²
+        if j == 1 # n_periods > 1
+            # += ρ * α₂ * (P₂,₁ + wₙ,₁ + wₙ,₂)
+            axpy!(-rho*alpha[2], view(projected2, :, 1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, 1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, 2), rhs)
+        elseif 2 <= j <= n_periods-1
+            # += ρ * α₂ * (P₂,ⱼ - P₂,ⱼ₋₁ + wₙ,ⱼ₊₁ + 2wₙ,ⱼ + wₙ,ⱼ₋₁)
+            axpy!(-rho*alpha[2], view(projected2, :, j), rhs)
+            axpy!(rho*alpha[2], view(projected2, :, j-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, j+1), rhs)
+            axpy!(2*rho*alpha[2], view(W_old, :, j), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, j-1), rhs)
+        else # j == n_periods
+            # += ρ * α₂ * (-P₂,ⱼ₋₁ + wₙ,ⱼ₋₁ + wₙ,ⱼ)
+            axpy!(rho*alpha[2], view(projected2, :, n_periods-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, n_periods-1), rhs)
+            axpy!(rho*alpha[2], view(W_old, :, n_periods), rhs)
+        end
+
+        # Solve the linear system for block j.
+        w = view(W, :, j)
+        mul!(w, M[j], rhs)
+    end
+    BLAS.set_num_threads(nt)
+
+    return nothing
+end
+
 function rho_sensitivity(prob::PortfolioProblem, extras::PortfolioQuadratic, rho, hparams)
     @unpack alpha, tau = hparams
     @unpack W, C, n_assets, n_periods = prob

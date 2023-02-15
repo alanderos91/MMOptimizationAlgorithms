@@ -15,7 +15,7 @@ const OPTIONS = set_options(;
     maxrhov=100,
     gtol=1e-4,
     dtol=1e-6,
-    rtol=1e-8,
+    rtol=1e-12,
     rhof=geometric_progression(1.5),
     nesterov=10,
     rho_max=Inf,
@@ -109,7 +109,7 @@ Data from:
 """)
 
 a = 2/3
-result = @time MMOA.portfolio_optimization(MMAL(), C, R, xi_init, xi_term;
+result = @time MMOA.portfolio_optimization(MML(), C, R, xi_init, xi_term;
     options=OPTIONS,
     callback=VerboseCallback(50),
     tau=(1e3, 1e3),
@@ -143,6 +143,7 @@ CSV.write("/home/alanderos/Desktop/diffs.csv", DataFrame(result.differences, :au
 Ts = 2:8
 chol_time = zeros(length(Ts))
 accl_time = zeros(length(Ts))
+blks_time = zeros(length(Ts))
 xi_init = ones(length(Ts))
 xi_term = [(1 + expected_annual_return/100)^T for T in Ts]
 
@@ -163,6 +164,13 @@ Logging.with_logger(logger) do
             alpha=(a/2, a/2, 1-a),
         )
         println("  Completed in ", accl_time[k], " seconds.\n")
+        println("Block algorithm, $(T) periods")
+        blks_time[k] = benchmark(MMBS(:eigen), C, R, xi_init[k], xi_term[k], T;
+            options=OPTIONS,
+            tau=(1e3, 1e3),
+            alpha=(a/2, a/2, 1-a),
+        )
+        println("  Completed in ", blks_time[k], " seconds.\n")
     end
 end
 
@@ -175,7 +183,9 @@ CSV.write(
         xi_term=xi_term,
         cholesky_seconds=chol_time,
         accelerated_seconds=accl_time,
-        ratio=chol_time ./ accl_time,
+        block_seconds=blks_time,
+        ratio1=chol_time ./ accl_time,
+        ratio2=chol_time ./ blks_time,
     ),
     header=true,
 )

@@ -8,7 +8,7 @@ import Base: show
 import ForwardDiff: Dual
 
 export AlgOptions, set_options,
-    MML, MMAL, MMPS, SD, TRNewton,
+    MML, MMAL, MMPS, MMBS, SD, TRNewton,
     VerboseCallback, HistoryCallback,
     trnewton,
     newton,
@@ -44,6 +44,20 @@ MM w/ parameter separation.
 Majorize an objective with a surrogate that separates parameters.
 """
 struct MMPS <: AbstractMMAlg end
+
+"""
+MM w/ parameter separation over blocks.
+
+Majorize an objective with a surrogate that separates blocks of parameters.
+"""
+struct MMBS{linsolve} <: AbstractMMAlg end
+
+function MMBS(linsolve::Symbol)
+    if !(linsolve in (:cholesky, :svd, :eigen))
+        error("Unrecognized linsolve strategy $(linsolve). Try :cholesky, :svd, or :eigen.")
+    end
+    MMBS{linsolve}()
+end
 
 """
 Steepest descent.
