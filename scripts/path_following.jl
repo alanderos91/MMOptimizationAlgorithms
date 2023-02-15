@@ -163,7 +163,7 @@ function plot_history_data(example, r, h, field, xlabel, ylabel, bias=0.0)
 
         # Zoomed View
         viewxmax = 1e1 .^ ceil(log10(xmax))
-        viewxmin = 1e3 # max(1.0, 1e1 .^ floor(log10(xmax) - 1))
+        viewxmin = max(1.0, 1e1 .^ ceil(log10(xmax) - 1))
         idx = findfirst(>(viewxmin), x)
         viewymin, viewymax = extrema(y[idx:end])
         viewymin = 1e1 .^ floor(log10(viewymin))

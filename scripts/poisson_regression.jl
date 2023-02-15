@@ -230,7 +230,8 @@ save(
     joinpath(outdir, "$(example)-histogram.$(ext)"), sfig, pt_per_unit=1,
 )
 
-scalef = 0.9
+patch_w = 20 # width of patch inside legend
+scalef = 0.9 # scale factor for resolution
 fig = Figure(resolution=(scalef*1000, scalef*600))
 fgrid = fig[1,1] = GridLayout()
 ax = Axis(fgrid[1:2,1],
@@ -339,8 +340,10 @@ elementsA = [
     ],
 ]
 elementsB = [
-    LineElement(color=:black, linestyle=:solid),
-    LineElement(color=:black, linestyle=:dash),
+    [
+        LineElement(color=:red, linestyle=:dash),
+        MarkerElement(color=:red, marker=:circle),
+    ],
 ]
 
 labelsA = [
@@ -351,18 +354,19 @@ labelsA = [
 ]
 
 labelsB = [
-    "Newton with trust region",
-    "Newton with step-halving",
+    "Exponential"
 ]
 
-Legend(fgrid[1,2], elementsA, labelsA, "Inverse Link";
+Legend(fgrid[1,2], elementsA, labelsA, "Trust Region";
     framevisible=false,
     orientation=:vertical,
+    patchsize = (2*patch_w, patch_w),
 )
 
-Legend(fgrid[2,2], elementsB, labelsB, "";
+Legend(fgrid[2,2], elementsB, labelsB, "Newton with Step-Halving";
     framevisible=false,
     orientation=:vertical,
+    patchsize = (2*patch_w, patch_w),
 )
 
 # colgap!(fgrid, 1, 0)
