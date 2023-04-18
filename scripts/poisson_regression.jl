@@ -1,4 +1,5 @@
 import Pkg; Pkg.activate("./scripts"); Pkg.status()
+mkpath("./results")
 
 using CairoMakie, LaTeXStrings
 using Distributions, LinearAlgebra, MMOptimizationAlgorithms, Random, Roots, SpecialFunctions, StatsBase

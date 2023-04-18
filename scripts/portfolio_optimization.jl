@@ -9,6 +9,7 @@ using MMOptimizationAlgorithms
 
 import Logging
 
+const OUTDIR = "results"
 const MMOA = MMOptimizationAlgorithms
 const OPTIONS = set_options(;
     maxiter=10^4,
@@ -138,8 +139,8 @@ println("""
 @show extrema(W)
 @show norm(result.residual)
 
-CSV.write("/home/alanderos/Desktop/assets.csv", DataFrame(W, :auto), header=false)
-CSV.write("/home/alanderos/Desktop/diffs.csv", DataFrame(result.differences, :auto), header=false)
+CSV.write(joinpath(OUTDIR, "portfolio_optimization_weights.csv"), DataFrame(W, :auto), header=false)
+CSV.write(joinpath(OUTDIR, "portfolio_optimization_diffs.csv"), DataFrame(result.differences, :auto), header=false)
 
 Ts = 2:8
 chol_time, chol_iter = zeros(length(Ts)), zeros(Int, length(Ts))
@@ -176,7 +177,7 @@ Logging.with_logger(logger) do
 end
 
 CSV.write(
-    "/home/alanderos/Desktop/portfolio_optimization_benchmark.csv",
+    joinpath(OUTDIR, "portfolio_optimization_benchmark.csv"),
     DataFrame(
         number_assets=n_assets*ones(length(Ts)),
         number_periods=Ts,

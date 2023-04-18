@@ -2,6 +2,7 @@
 #   Load environment
 #
 import Pkg; Pkg.activate("./scripts"); Pkg.status()
+mkpath("./results")
 
 using DataStructures, MMOptimizationAlgorithms, Random
 using CSV, DataFrames, LinearAlgebra, Statistics
