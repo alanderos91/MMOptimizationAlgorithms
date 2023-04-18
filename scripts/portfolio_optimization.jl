@@ -49,9 +49,10 @@ function benchmark(algorithm, C, R, xi_init, xi_term, T; kwargs...)
     C_T = view(C, 1:T)
     R_T = view(R, :, 1:T)
 
-    @elapsed MMOA.portfolio_optimization(algorithm, C_T, R_T, xi_init, xi_term;
+    result = @timed MMOA.portfolio_optimization(algorithm, C_T, R_T, xi_init, xi_term;
         kwargs...,
     )
+    return result.time, result.value.iters
 end
 
 n_years = 8
@@ -141,9 +142,9 @@ CSV.write("/home/alanderos/Desktop/assets.csv", DataFrame(W, :auto), header=fals
 CSV.write("/home/alanderos/Desktop/diffs.csv", DataFrame(result.differences, :auto), header=false)
 
 Ts = 2:8
-chol_time = zeros(length(Ts))
-accl_time = zeros(length(Ts))
-blks_time = zeros(length(Ts))
+chol_time, chol_iter = zeros(length(Ts)), zeros(Int, length(Ts))
+accl_time, accl_iter = zeros(length(Ts)), zeros(Int, length(Ts))
+blks_time, blks_iter = zeros(length(Ts)), zeros(Int, length(Ts))
 xi_init = ones(length(Ts))
 xi_term = [(1 + expected_annual_return/100)^T for T in Ts]
 
@@ -151,21 +152,21 @@ logger = Logging.ConsoleLogger(stdout, Logging.Warn+1)
 Logging.with_logger(logger) do
     for (k, T) in enumerate(Ts)
         println("Cholesky algorithm, $(T) periods")
-        chol_time[k] = benchmark(MML(), C, R, xi_init[k], xi_term[k], T;
+        chol_time[k], chol_iter[k] = benchmark(MML(), C, R, xi_init[k], xi_term[k], T;
             options=OPTIONS,
             tau=(1e3, 1e3),
             alpha=(a/2, a/2, 1-a),
         )
         println("  Completed in ", chol_time[k], " seconds.\n")
         println("Accelerated algorithm, $(T) periods")
-        accl_time[k] = benchmark(MMAL(), C, R, xi_init[k], xi_term[k], T;
+        accl_time[k], accl_iter[k] = benchmark(MMAL(), C, R, xi_init[k], xi_term[k], T;
             options=OPTIONS,
             tau=(1e3, 1e3),
             alpha=(a/2, a/2, 1-a),
         )
         println("  Completed in ", accl_time[k], " seconds.\n")
         println("Block algorithm, $(T) periods")
-        blks_time[k] = benchmark(MMBS(:eigen), C, R, xi_init[k], xi_term[k], T;
+        blks_time[k], blks_iter[k] = benchmark(MMBS(:eigen), C, R, xi_init[k], xi_term[k], T;
             options=OPTIONS,
             tau=(1e3, 1e3),
             alpha=(a/2, a/2, 1-a),
@@ -181,6 +182,9 @@ CSV.write(
         number_periods=Ts,
         xi_init=xi_init,
         xi_term=xi_term,
+        cholesky_iterations=chol_iter,
+        accelerated_iterations=accl_iter,
+        block_iterations=blks_iter,
         cholesky_seconds=chol_time,
         accelerated_seconds=accl_time,
         block_seconds=blks_time,
