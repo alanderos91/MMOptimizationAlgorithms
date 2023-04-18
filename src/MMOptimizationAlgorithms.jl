@@ -181,6 +181,7 @@ end
 function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
     options::AlgOptions=default_options(algorithm),
     callback::F=DEFAULT_CALLBACK,
+    verbose::Bool=false,
 ) where F
     # Get algorithm options.
     @unpack maxiter, gtol, rtol, nesterov = options
@@ -212,7 +213,9 @@ function solve!(algorithm::AbstractMMAlg, problem::AbstractProblem, hyperparams;
         if is_stationary
             break
         elseif state.objective > old
-            @warn "Descent condition not satisfied at iteration $(iter)." new=state.objective old=old diff=diff
+            if verbose
+                @warn "Descent condition not satisfied at iteration $(iter)." new=state.objective old=old diff=diff
+            end
             old = state.objective
         elseif iter < maxiter
             has_increased = state.objective > old
@@ -232,7 +235,9 @@ function trnewton(f::F, x0;
     options::AlgOptions=default_options(nothing),
     callback::G=DEFAULT_CALLBACK,
     estimatef::LFUN=DEFAULT_LIPSCHITZ,
-    chunks::Int=1) where {F,G,LFUN}
+    chunks::Int=1,
+    verbose::Bool=false,
+    ) where {F,G,LFUN}
     # Sanity checks.
     @unpack maxiter, gtol = options
     
@@ -297,7 +302,9 @@ function trnewton(f::F, x0;
 
         # Check for descent and convergence.
         if fold < fnew
-            @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+            if verbose
+                @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+            end
         elseif fold == fnew
             @warn "Reached a no-progress point." new=fnew old=fold diff=fold-fnew
             break
@@ -314,7 +321,9 @@ function newton(f::F, x0;
     options::AlgOptions=default_options(nothing),
     callback::G=DEFAULT_CALLBACK,
     nhalf::Int=3,
-    chunks::Int=1) where {F,G}
+    chunks::Int=1,
+    verbose::Bool=false,
+    ) where {F,G}
     # Sanity checks.
     @unpack maxiter, gtol = options
     
@@ -389,9 +398,13 @@ function newton(f::F, x0;
 
         # Check for descent and convergence.
         if fold < fnew
-            @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+            if verbose
+                @warn "Descent condition not satisfied at iteration $(iter)." new=fnew old=fold diff=fold-fnew
+            end
         elseif fold == fnew
-            @warn "Reached a no-progress point." new=fnew old=fold diff=fold-fnew
+            if verbose
+                @warn "Reached a no-progress point." new=fnew old=fold diff=fold-fnew
+            end
             break
         elseif state.gradient < gtol
             break
