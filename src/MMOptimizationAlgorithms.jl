@@ -314,7 +314,7 @@ function newton(f::F, x0;
     options::AlgOptions=default_options(nothing),
     callback::G=DEFAULT_CALLBACK,
     nhalf::Int=3,
-    chunks::Int=1) where {F,G,LFUN}
+    chunks::Int=1) where {F,G}
     # Sanity checks.
     @unpack maxiter, gtol = options
     
