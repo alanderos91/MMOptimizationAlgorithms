@@ -1,4 +1,4 @@
-# MM Optimization Algorithms: Fast Updates, Trust Regions, and Path Following 
+# MM Optimization Algorithms: Proximal Distance Algorithms, Trust Regions, and Path Following 
 
 ---
 <!--
