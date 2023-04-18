@@ -14,15 +14,53 @@
 [![Documentation](https://img.shields.io/badge/docs-master-blue.svg)](https://alanderos91.github.io/Code.jl/dev)
 -->
 
-# Setup
+This package implements various algorithms based on the MM principle and distance majorization.
+The algorithms implemented are:
+
+- `MML`: Majorize an objective with a quadratic surrogate and minimize it (linear solve).
+- `MMAL`: Majorize an objective with a quadratic surrogate and minimize it (linear solve). In the structure of the Hessian is exploited to accelerate updates.
+- `MMPS`: Majorize an objective with a surrogate that separates parameters.
+- `MMBS`: Majorize an objective with a surrogate that separates blocks of parameters.
+- `SD`: Majorize an objective with a surrogate that admits an exact line search in steepest descent.
+
+In addition, the functions `newton` and `trnewton` implement Newton's method with step-halving and Newton's method with adaptive trust regions. The latter algorithm is adaptive in the sense that it simultaneously selects a trust region radius and local Lipschitz constant (over the trust region) to update a solution estimate. Derivatives are handled with forward-mode automatic differentiation (ForwardDiff.jl) but a user must supply a function to calculate constants `(L,c)` related to a (local) Lipschitz constant and trust region radius.
+
+**Note**: Some algorithms may occasionally encounter small roundoff errors that result in loss of precision when evaluation objective functions. This translates to small violations of the descent property guaranteed by MM. Adding the `verbose=true` keyword to a solver call will trigger a warning message reporting descent violations along with the size of the violation. *In practice, we find that the violations are sufficiently small relative to the magnitude of objective values that they can be safely ignored.*
+
+## Setup
+
+Download the source code for this repository.
+
+### Using Julia's package manager
+
+```bash
+Pkg.add(url="https://github.com/alanderos91/MMOptimizationAlgorithms")
+```
+
+### Using `git`
+
+```bash
+git clone https://github.com/alanderos91/MMOptimizationAlgorithms /a/path/to/MMOptimizationAlgorithms
+```
+
+### Reproducing Julia Environment
+
+**The following assumes the top-level directory is `MMOptimizationAlgorithms`**.
+
+In a Julia session, run the script
+
+```julia
+import Pkg
+
+Pkg.activate("."); Pkg.instantiate()            # recreate from Manifest.toml
+Pkg.activate("./scripts"); Pkg.instantiate()    # recreate from scripts/Manifest.toml
+```
 
 ---
 
-# Examples
+## Examples
 
----
-
-## Least Squares
+### Constrained Least Squares via Proximal Distance Algorithms
 
 <details>
 <summary>Click to expand</summary>
@@ -134,10 +172,10 @@ options = set_options(algorithm;
     rtol=1e-12,                     # relative tolerance used in both inner and outer iterations
     rhof=geometric_progression(1.2) # update rho -> 1.2 * rho in outer iterations
 )
-callback = VerboseCallback(10)      # print history every 10 MM steps
+callback = VerboseCallback(100)     # print history every 100 MM steps
 
-# Pass data to sparse regression solver and run.
-result = @time fused_lasso(algorithm, y, X, 1e1;
+# Pass data to fused lasso solver and run.
+result = @time fused_lasso(algorithm, y, X, 1e1, 1e1;
     options=options,
     callback=callback,
 );
@@ -150,88 +188,104 @@ findnz(x) = findall(xi -> abs(xi) > 0, x)
 intersect(findnz(beta0), findnz(result.projected))
 ```
 
-</details>
-
----
-
-## Graph Learning
-
-#### Node Smoothing
-
-<details>
-<summary>Click to expand</summary>
+**Linear Extrapolation**
 
 ```julia
-using MMOptimizationAlgorithms, Random
-MMOA = MMOptimizationAlgorithms # abbreviate
-
-nnodes = 10
-nsamples = 10^3
-prob = 0.2
-
-# Simulate data. Returns node signals x, adjacency matrix A, and Laplacian L
-x, A, L = MMOA.simulate_erdos_renyi_instance(nnodes, nsamples, prob=prob)
-
-# Set algorithm options.
-algorithm = MMPS()                  # steepest descent
-options = set_options(algorithm;
-    maxiter=10^3,                   # maximum iterations for fixed rho
-    maxrhov=100,                    # maximum number of rho values to test
-    gtol=1e-2,                      # converge for fixed rho: |∇f| < gtol OR |∇fₖ| < rtol*(1 + |∇fₖ₋₁|)
-    dtol=1e-2,                      # overall convergence: dist < dtol OR distₖ < rtol*(1 + distₖ₋₁)
-    rtol=1e-12,                     # relative tolerance used in both inner and outer iterations
-    rhof=geometric_progression(1.2) # update rho -> 1.2 * rho in outer iterations
-)
-callback = VerboseCallback(10)      # print history every 10 MM steps
-
-result = @time node_smoothing(MMPS(), x;
-    alpha=1e0,                      # penalty coefficient on node degrees
-    beta=1e0,                       # strength of ridge penalty
+result = @time fused_lasso(algorithm, y, X, 1e1, 1e1;
     options=options,
     callback=callback,
+    pathf=linear_update,            # update: xᵨ <- xᵨ + dxᵨ * Δρ
 );
+```
 
-result.matrix                       # inferred adjacency matrix
+**Exponential Extrapolation**
+
+```julia
+result = @time fused_lasso(algorithm, y, X, 1e1, 1e1;
+    options=options,
+    callback=callback,
+    pathf=exponential_update,       # update: xₙ <- xₙ + dxₙ * Δη; where ρ = exp(η)
+);
 ```
 
 </details>
 
-#### Explicit Sparsity
+### Adaptive Trust Regions via Local Majorization
 
-<details>
-<summary>Click to expand</summary>
+#### Styblinski-Tang
+
+This example is adapted from `scripts/styblinski-tang.jl`. It requires the Roots.jl package.
+The easiest way to run it is to run
 
 ```julia
-using MMOptimizationAlgorithms, Random
+import Pkg; Pkg.activate("./scripts")
+```
+
+<details>
+<summary>Click here to expand</summary>
+
+```julia
+using MMOptimizationAlgorithms, LinearAlgebra, Roots, Random
 MMOA = MMOptimizationAlgorithms # abbreviate
 
-nnodes = 10
-nsamples = 10^3
-prob = 0.2
+# Styblinski-Tang function; dimension is inferred from length of `x`.
+function f(x)
+    fx = zero(eltype(x))
+    for i in eachindex(x)
+        fx += x[i]^4 - 16*x[i]^2 +5*x[i]
+    end
+    return 1//2*fx
+end
 
-# Simulate data. Returns node signals x, adjacency matrix A, and Laplacian L
-x, A, L = MMOA.simulate_erdos_renyi_instance(nnodes, nsamples, prob=prob)
+# Function to simultaneously estimate a local Lipschitz constant and trust region radius.
+#
+# Lambda is the smallest eigenvalue of the Hessian, estimated before this function is called.
+# Taking `r` as the trust region radius, we prescribe `r = c * sqrt(norm(grad))` where `c` is to be determined.
+# The formula below comes from solving the equation L * c / 3 = 1/c by taking into account the interdependency
+# between the Lipschitz constant L, c, and radius r.
+#
+# The pair (L, c) is returned so we know the local Lipschitz constant over the trust region with
+# radius c*sqrt(norm(grad)).
+function estimatef(x, grad, lambda)
+    g = sqrt(norm(grad))
 
-# Set algorithm options.
-algorithm = MMPS()                  # steepest descent
-options = set_options(algorithm;
-    maxiter=10^3,                   # maximum iterations for fixed rho
-    maxrhov=100,                    # maximum number of rho values to test
-    gtol=1e-2,                      # converge for fixed rho: |∇f| < gtol OR |∇fₖ| < rtol*(1 + |∇fₖ₋₁|)
-    dtol=1e-2,                      # overall convergence: dist < dtol OR distₖ < rtol*(1 + distₖ₋₁)
-    rtol=1e-12,                     # relative tolerance used in both inner and outer iterations
-    rhof=geometric_progression(1.2) # update rho -> 1.2 * rho in outer iterations
-)
-callback = VerboseCallback(10)      # print history every 10 MM steps
-k = div(count(>(0), A), 2)
+    if iszero(lambda)
+        c = (4*g)^(-1/3)
+    elseif lambda < 0
+        c = fzero(y -> 4*g*y^3 + lambda*y - 1, one(lambda))
+    else
+        error("Expected lambda <= 0")
+    end
+    L = 12*c*g # 12*r, as listed in the manuscript
 
-result = @time node_sparsity(MMPS(), x, k;
-    alpha=1e0,                      # penalty coefficient on node degrees
-    options=options,
-    callback=callback,
-);
+    return L, c
+end
 
-result.matrix                       # inferred adjacency matrix
+rng = Xoshiro()
+seed = UInt64[0xa0a9633bb04a9ad2, 0xffdcb16aac817989, 0x2dfbae18e4a4c23d, 0xd70043446cd4bd35]
+Random.seed!(rng, seed)
+println("RNG Seed: $(seed)")
+
+d = 4
+x_init = -5 .+ 5*rand(rng, d)
+z = -2.903534027771177*ones(d) # found using Roots.jl
+fz = f(z)
+options = set_options(gtol=0.0, maxiter=30)
+callback = VerboseCallback()
+
+println("\nStyblinski-Tang w/ d=4")
+println("Global minimum f(z): $(fz);\tzᵢ = $(round(z[1], digits=3)) for i=1,2,…,d")
+println("Initialize each xᵢ ∈ [-5, 0], x = ", round.(x_init, digits=3))
+
+println("\nTrust-Region Newton")
+result = @time MMOA.trnewton(f, x_init; callback=callback, options=options, estimatef=estimatef)
+println("\n  |x₁ - z₁| = $(abs(result[1] - z[1]));\tx₁ = $(result[1])")
+println("  |f(x)-f(z)| = $(abs(f(result) - fz));\tf(x) = $(f(result))")
+
+println("\nStep-Halving Newton")
+result = @time MMOA.newton(f, x_init; callback=callback, options=options, nhalf=8)
+println("\n  |x₁ - z₁| = $(abs(result[1] - z[1]));\tx₁ = $(result[1])")
+println("  |f(x)-f(z)| = $(abs(f(result) - fz));\tf(x) = $(f(result))")
 ```
 
 </details>
